@@ -110,13 +110,6 @@ const uint8_t enable_wifi = 1;
 //before continuing. Also prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 0;
 
-//a high amount of sensor data will be written to log
-//debug == 0: logs nothing
-//debug <= 1: logs interrupts of IR1 and IR2
-//debug <= 2: as above and logs buffer_sum of all IR sensors continuously, every 500ms (all buffer events!)
-//debug <= 3: as above and logs transition management variables
-const uint8_t debug = 2;
-
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
@@ -282,9 +275,6 @@ void setup()
   dataFile.println("not yet implemented");
   dataFile.print("# RFID Module 2 version: ");
   dataFile.println("not yet implemented");
-  
-  dataFile.print("# debug level: ");
-  dataFile.println(debug);
   
   dataFile.print("# System start @ ");
   dataFile.print(nicetime());
