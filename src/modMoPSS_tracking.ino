@@ -115,7 +115,7 @@ unsigned long starttime;      //start of programm
 //##############################################################################
 
 //if set to 1, the MoPSS will wait for a wifi connection and synchronization with network time before continuing
-const uint8_t enable_wifi = 0;
+const uint8_t enable_wifi = 1;
 
 //if set to 1, the MoPSS will wait until a serial connection via USB is established
 //before continuing. Also prints what is written to uSD to Serial as well.
@@ -147,7 +147,7 @@ void setup()
   //----- Display --------------------------------------------------------------
   u8g2_SetI2CAddress(&oled,0xf0);      //I2C address of display multiplied by 2 (0x78 * 2)
   oled.begin();
-  oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
+  oled.setFont(u8g2_font_6x10_mf); //set font
   OLEDprint(0,0,1,1,">>> Module Setup <<<");
   
   //----- RFID readers ---------------------------------------------------------
@@ -158,7 +158,6 @@ void setup()
   OLEDprint(2,0,0,1,"-Done");
   delay(1000);  //short delay to allow reading of screen
     
-  //----- WiFi -----------------------------------------------------------------
   //----- WiFi -----------------------------------------------------------------
   OLEDprint(0,0,1,1,">>>  WiFi Setup  <<<");
   
@@ -493,7 +492,6 @@ void loop()
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //do stuff (continuously) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-  
   
   //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
   //do other stuff (every now and then) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
