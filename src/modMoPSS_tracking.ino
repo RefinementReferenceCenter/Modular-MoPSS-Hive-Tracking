@@ -33,7 +33,7 @@ D19 - SCL
 
 --- Experimental Setup ---
 
- ^^^^^^^\                        /^^^^^^^
+ ^^^^^^^\      1 Reader Pair     /^^^^^^^
         |                        |
    c    |     |R|        |R|     |    c
    a  ––|–––––|F|––––––––|F|–––––|––  a
@@ -54,15 +54,26 @@ D19 - SCL
 const char SOFTWARE_REV[] = "v1.0.0";
 
 //I2C addresses
-const uint8_t reader1 = 0x08;     //I2C address RFID module 1
-const uint8_t reader2 = 0x09;     //I2C address RFID module 2
-//const uint8_t reader3 = 0x0a;     //I2C address RFID module 3
-//const uint8_t reader4 = 0x0b;     //I2C address RFID module 4
+
+//maximum number of RFID modules to support, when altering also change I2C address array to fit!
+const uint8_t maxReaderPairs = 10;
+//RFID reader pairs
+const uint8_t RFIDreader[maxReaderPairs][2] = {  //for 10 reader pair addresses
+  {0x08,0x09},
+  {0x0a,0x0b},
+  {0x0c,0x0d},
+  {0x0e,0x0f},
+  {0x10,0x11},
+  {0x12,0x13},
+  {0x14,0x15},
+  {0x16,0x17},
+  {0x18,0x19},
+  {0x1a,0x1b}};
 
 const uint8_t oledDisplay = 0x78; //I2C address oled display
 
 //Buttons
-const int buttons = A13;  //~1022 not pressed, ~1 left, ~323 middle, ~711 right
+const int buttons = A13;    //~1022 not pressed, ~1 left, ~323 middle, ~711 right
 
 //LEDs
 const int errorLED = 32;
@@ -80,56 +91,37 @@ FsFile dataFileBackup;
 
 //Display
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
-uint32_t displaytime = 0;         //stores millis to time display refresh
-uint8_t displayon = 1;            //flag to en/disable display
+uint32_t displaytime = 0;    //stores millis to time display refresh
+uint8_t displayon = 1;       //flag to en/disable display
 
 //RFID
-uint32_t RFIDtime;           //used to measure time before switching to next antenna
-uint8_t RFIDtoggle = 0;      //flag used to switch to next antenna
+uint32_t RFIDtime[maxReaderPairs];       //used to measure time before switching to next antenna
+uint8_t RFIDtoggle[maxReaderPairs];      //flag used to switch to next antenna
 
-uint8_t tag[7] = {};         //global variable to store returned tag data
-uint8_t tag1_present = 0;    //flag that indicates if tag was present during read cycle
-uint8_t tag2_present = 0;
-uint8_t reader1_cycle = 0;   //toggles flag if a read cycle has just happened (not automatically cleared)
-uint8_t reader2_cycle = 0;
-uint8_t currenttag1[7] = {}; //saves id of the tag that was read during the current read cycle
-uint8_t currenttag2[7] = {};
-uint8_t lasttag1[7] = {};    //saves id of the tag that was read during the previous read cycle
-uint8_t lasttag2[7] = {};
+uint8_t tag[7] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature
+uint8_t currenttag1[maxReaderPairs][7] = {}; //saves id of the tag that was read during the current read cycle
+uint8_t currenttag2[maxReaderPairs][7] = {};
+uint8_t lasttag1[maxReaderPairs][7] = {};    //saves id of the tag that was read during the previous read cycle
+uint8_t lasttag2[maxReaderPairs][7] = {};
 
-uint8_t RFIDmode = 1;           //select mode to operate in: 1-alternate, 2-reader1, 3-reader2
-uint8_t RFIDmode_firstrun = 1;  //to make sure the correct reader is turned on/off
+int32_t reader1freq[maxReaderPairs] = {};    //saves resonant frequency measured at bootup
+int32_t reader2freq[maxReaderPairs] = {};
 
 //Experiment variables
 uint32_t starttime;        //start of programm
 uint32_t rtccheck_time;    //time the rtc was checked last
 
-//Mice tags
-const uint8_t mice = 15;           //number of mice in experiment (add 1 for mouse 0, add 2 for test-mice)
-const uint8_t mouse_library[mice][6] = {
-  {0x00,0x00,0x00,0x00,0x00,0x00}, //mouse 0
-  {0x73,0x74,0xF7,0x90,0x2E,0xE1}, //mouse 1  sw_si 1923
-  {0x7F,0x65,0x7F,0x90,0x2E,0xE1}, //mouse 2  ro_ge 8095
-  {0x40,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 3  sw_ro 1616
-  {0x32,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 4  we_sw 1858
-  {0xB8,0x74,0x7F,0x90,0x2E,0xE1}, //mouse 5  ro_we 1992
-  {0x18,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 6  sw_ge 0296
-  {0xAA,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 7  we_si 1210
-  {0x6B,0x6E,0x7F,0x90,0x2E,0xE1}, //mouse 8  ro_si 0379
-  {0x0F,0x71,0x7F,0x90,0x2E,0xE1}, //mouse 9  sw_we 1055
-  {0x77,0x6F,0x7F,0x90,0x2E,0xE1}, //mouse 10 we_ge 0647
-  {0x91,0x64,0x7F,0x90,0x2E,0xE1}, //mouse 11 ro_sw 7857
-  {0x41,0x73,0x7F,0x90,0x2E,0xE1}, //mouse 12 we_ro 1617
-  {0xA1,0x82,0x42,0xDD,0x3E,0xF3}, //mouse 13 polymorphmaus
-  {0x0E,0x67,0xF7,0x90,0x2E,0xE1}};//mouse 14 bleistiftmaus
-
-uint8_t mice_visits[mice][2];      //contains the number of tag reads at reader 1 and 2 during the last 24 hours
-uint8_t current_mouse1 = 0;        //placeholder simple number for tag at reader 1
-uint8_t current_mouse2 = 0;        //placeholder simple number for tag at reader 2
-
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
 //##############################################################################
+
+//active reader pairs == amount of RFID modules in use
+const uint8_t arp = 1;
+
+//Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
+//output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
+//It is only necessary to asign identifiers equal to the amount of active reader pairs
+const char RFIDreaderNames[maxReaderPairs] = {'?','?','?','?','?','?','?','?','?','?'}; //Single character only!
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
@@ -171,31 +163,39 @@ void setup(){
 
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
-  uint8_t RFIDmodulestate = 0;
-  int32_t reader1_freq = 0;
-  int32_t reader2_freq = 0;
-  while(RFIDmodulestate == 0){
+  for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
     OLEDprint(0,0,1,1,">>> RFID Setup <<<");
-    OLEDprint(1,0,0,1,"reader 1:");
-    OLEDprint(2,0,0,1,"reader 2:");
-    reader1_freq = fetchResFreq(reader1);
-    OLEDprintFraction(1,10,0,1,(float)reader1_freq/1000,3);
-    OLEDprint(1,17,0,1,"kHz");
-    reader2_freq = fetchResFreq(reader2);
-    OLEDprintFraction(2,10,0,1,(float)reader2_freq/1000,3);
-    OLEDprint(2,17,0,1,"kHz");
+    
+    char reader1[4] = {'R',RFIDreaderNames[r],'1'};
+    OLEDprint(1,0,0,1,reader1);
+    OLEDprint(1,3,0,1,":");
+    
+    char reader2[4] = {'R',RFIDreaderNames[r],'2'};
+    OLEDprint(2,0,0,1,reader2);
+    OLEDprint(2,3,0,1,":");
+    
+    uint8_t RFIDmodulestate = 0;
+    
+    while(RFIDmodulestate == 0){
+      reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
+      OLEDprintFraction(1,5,0,1,(float)reader1freq[r]/1000,3);
+      OLEDprint(1,12,0,1,"kHz");
+      reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
+      OLEDprintFraction(2,5,0,1,(float)reader2freq[r]/1000,3);
+      OLEDprint(2,12,0,1,"kHz");
 
-    if((abs(reader1_freq - 134200) >= 1000) || (abs(reader2_freq - 134200) >= 1000)){
-      OLEDprint(4,0,0,1,"Antenna detuned!");
-      OLEDprint(5,0,0,1,"CONFIRM");
-      OLEDprint(5,14,0,1,"REPEAT");
-      uint8_t buttonpress = getButton();
-      if(buttonpress == 1) RFIDmodulestate = 1;
-    }
-    else{
-      OLEDprint(5,0,0,1,"-Done");
-      delay(1000);  //to give time to actually read the display
-      RFIDmodulestate = 1;
+      if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000)){
+        OLEDprint(4,0,0,1,"Antenna detuned!");
+        OLEDprint(5,0,0,1,"CONFIRM");
+        OLEDprint(5,14,0,1,"REPEAT");
+        uint8_t buttonpress = getButton();
+        if(buttonpress == 1) RFIDmodulestate = 1;
+      }
+      else{
+        OLEDprint(5,0,0,1,"-Done");
+        delay(1000);  //to give time to actually read the display
+        RFIDmodulestate = 1;
+      }
     }
   }
   
@@ -237,12 +237,23 @@ void setup(){
   dataFile.println("");
   dataFile.print("# Modular MoPSS Hive version: ");
   dataFile.println(SOFTWARE_REV);
-  dataFile.print("# RFID Module 1 resonant frequency: ");
-  dataFile.print(reader1_freq);
-  dataFile.println(" Hz");
-  dataFile.print("# RFID Module 2 resonant frequency: ");
-  dataFile.print(reader2_freq);
-  dataFile.println(" Hz");
+  
+  for(uint8_t r = 0;r < arp;r++){
+    char reader1[4] = {'R',RFIDreaderNames[r],'1'};
+    char reader2[4] = {'R',RFIDreaderNames[r],'2'};
+    
+    dataFile.print("# RFID Antenna ");
+    dataFile.print(reader1);
+    dataFile.print(" resonant frequency: ");
+    dataFile.print(reader1freq[r]);
+    dataFile.println(" Hz");
+    dataFile.print("# RFID Antenna ");
+    dataFile.print(reader2);
+    dataFile.print(" resonant frequency: ");
+    dataFile.print(reader2freq[r]);
+    dataFile.println(" Hz");
+  }
+  
   dataFile.print("# debug level: ");
   dataFile.println(debug);
   dataFile.print("# System start @ ");
@@ -263,12 +274,23 @@ void setup(){
   dataFileBackup.println("");
   dataFileBackup.print("# Modular MoPSS Hive version: ");
   dataFileBackup.println(SOFTWARE_REV);
-  dataFileBackup.print("# RFID Module 1 resonant frequency: ");
-  dataFileBackup.print(reader1_freq);
-  dataFileBackup.println(" Hz");
-  dataFileBackup.print("# RFID Module 2 resonant frequency: ");
-  dataFileBackup.print(reader2_freq);
-  dataFileBackup.println(" Hz");
+  
+  for(uint8_t r = 0;r < arp;r++){
+    char reader1[4] = {'R',RFIDreaderNames[r],'1'};
+    char reader2[4] = {'R',RFIDreaderNames[r],'2'};
+    
+    dataFileBackup.print("# RFID Antenna ");
+    dataFileBackup.print(reader1);
+    dataFileBackup.print(" resonant frequency: ");
+    dataFileBackup.print(reader1freq[r]);
+    dataFileBackup.println(" Hz");
+    dataFileBackup.print("# RFID Antenna ");
+    dataFileBackup.print(reader2);
+    dataFileBackup.print(" resonant frequency: ");
+    dataFileBackup.print(reader2freq[r]);
+    dataFileBackup.println(" Hz");
+  }
+  
   dataFileBackup.print("# debug level: ");
   dataFileBackup.println(debug);
   dataFileBackup.print("# System start @ ");
@@ -284,6 +306,42 @@ void setup(){
   dataFileBackup.println();
 
   dataFileBackup.flush();
+  
+  //output start log to console
+  if(is_testing){
+    Serial.print("# Modular MoPSS Hive version: ");
+    Serial.println(SOFTWARE_REV);
+    
+    for(uint8_t r = 0;r < arp;r++){
+      char reader1[4] = {'R',RFIDreaderNames[r],'1'};
+      char reader2[4] = {'R',RFIDreaderNames[r],'2'};
+      
+      Serial.print("# RFID Antenna ");
+      Serial.print(reader1);
+      Serial.print(" resonant frequency: ");
+      Serial.print(reader1freq[r]);
+      Serial.println(" Hz");
+      Serial.print("# RFID Antenna ");
+      Serial.print(reader2);
+      Serial.print(" resonant frequency: ");
+      Serial.print(reader2freq[r]);
+      Serial.println(" Hz");
+    }
+    
+    Serial.print("# debug level: ");
+    Serial.println(debug);
+    Serial.print("# System start @ ");
+    Serial.print(nicetime(starttime));
+    Serial.print(" ");
+    Serial.print(day(starttime));
+    Serial.print("-");
+    Serial.print(month(starttime));
+    Serial.print("-");
+    Serial.println(year(starttime));
+    Serial.print("# Unixtime: ");
+    Serial.println(starttime);
+    Serial.println();
+  }
   
   //---- setup experiment ------------------------------------------------------
 
@@ -305,77 +363,37 @@ void loop(){
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
   
-  if(RFIDmode == 1){  //alternately switch between both readers
-    if((millis() - RFIDtime) >= 100){
-      RFIDtime = millis();
+  for(uint8_t r = 0;r < arp;r++){
+    if((millis() - RFIDtime[r]) >= 100){
+      RFIDtime[r] = millis();
       
-      if(RFIDtoggle == 1){
-        RFIDtoggle = 0; //toggle the toggle
-        switchReaders(reader2,reader1); //enable reader2, disable reader1
-        tag1_present = fetchtag(reader1, 1); //fetch data reader1 collected during on-time saved in variable: tag
-        reader1_cycle = 1;  //flag reader 1 is being read
-        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[i] = tag[i]; //copy received tag to current tag
+      if(RFIDtoggle[r] == 1){
+        RFIDtoggle[r] = 0; //toggle the toggle
+        switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
+        
+        uint8_t tag_status = fetchtag(RFIDreader[r][0],1); //fetch data reader1 collected during on-time saved in variable: tag
+        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
+        
         //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-        uint8_t tag1_switch = compareTags(currenttag1,lasttag1);
-        RFIDdataString = createRFIDDataString(currenttag1, lasttag1, tag1_present, tag1_switch, "R1"); //create datastring that is written to uSD
-        for(uint8_t i = 0; i < sizeof(currenttag1); i++) lasttag1[i] = currenttag1[i]; //copy currenttag to lasttag
+        uint8_t tag_switch = compareTags(currenttag1[r],lasttag1[r]);
+        char reader[4] = {'R',RFIDreaderNames[r],'1'};
+        RFIDdataString = createRFIDDataString(currenttag1[r], lasttag1[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
+        for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) lasttag1[r][i] = currenttag1[r][i]; //copy currenttag to lasttag
       }
       else{
-        RFIDtoggle = 1; //toggle the toggle
-        switchReaders(reader1,reader2); //enable reader1, disable reader2
-        tag2_present = fetchtag(reader2, 1); //fetch data reader2 collected during on-time saved in variable: tag
-        reader2_cycle = 1;
-        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[i] = tag[i]; //copy received tag to current tag
+        RFIDtoggle[r] = 1; //toggle the toggle
+        switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
+        
+        uint8_t tag_status = fetchtag(RFIDreader[r][1],1); //fetch data reader2 collected during on-time saved in variable: tag
+        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
+        
         //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-        uint8_t tag2_switch = compareTags(currenttag2,lasttag2);
-        RFIDdataString = createRFIDDataString(currenttag2, lasttag2, tag2_present, tag2_switch, "R2"); //create datastring that is written to uSD
-        for(uint8_t i = 0; i < sizeof(currenttag2); i++) lasttag2[i] = currenttag2[i]; //copy currenttag to lasttag
+        uint8_t tag_switch = compareTags(currenttag2[r],lasttag2[r]);
+        char reader[4] = {'R',RFIDreaderNames[r],'2'};
+        RFIDdataString = createRFIDDataString(currenttag2[r], lasttag2[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
+        for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) lasttag2[r][i] = currenttag2[r][i]; //copy currenttag to lasttag
       }
     }
-  }
-  
-  //----------------------------------------------------------------------------
-  //check tags of RFID readers -------------------------------------------------
-  //----------------------------------------------------------------------------
-  //check current tag against mouse_library, every read cycle if tag present
-  //--- Reader 1 ---
-  if(reader1_cycle && tag1_present){ 
-    reader1_cycle = 0;
-    //check current tag against library
-    current_mouse1 = 0;
-    for(uint8_t h = 1; h < mice; h++){ //iterate through all tags
-      uint8_t tc = 0;
-      for(uint8_t i = 0; i < sizeof(currenttag1); i++){ //compare byte by byte
-        if(currenttag1[i] == mouse_library[h][i]) tc++;
-        else break; //stop comparing current tag at first mismatch
-      }
-      if(tc == 6){ //if all 6 bytes are identical, matching tag found
-        current_mouse1 = h; //assign detected mouse to variable, mouse 0 is no detection
-        break;  //stop looking after first match
-      }
-    }
-    time_t nowtime = now();
-    if(current_mouse1 > 0) mice_visits[current_mouse1][1]++;
-  }
-  
-  //--- Reader 2 ---
-  if(reader2_cycle && tag2_present){
-    reader2_cycle = 0;
-    //check current tag against library
-    current_mouse2 = 0;
-    for(uint8_t h = 1; h < mice; h++){ //iterate through all tags
-      uint8_t tc = 0;
-      for(uint8_t i = 0; i < sizeof(currenttag2); i++){ //compare byte by byte
-        if(currenttag2[i] == mouse_library[h][i]) tc++;
-        else break; //stop comparing current tag at first mismatch
-      }
-      if(tc == 6){ //if all 6 bytes are identical, matching tag found
-        current_mouse2 = h; //assign detected mouse to variable, mouse 0 is no detection
-        break;  //stop looking after first match
-      }
-    }
-    time_t nowtime = now();
-    if(current_mouse2 > 0) mice_visits[current_mouse2][1]++;
   }
   
   //----------------------------------------------------------------------------
@@ -411,25 +429,6 @@ void loop(){
       //display current time from RTC and date
       OLEDprint(0,0,0,0,nicetime(rtctime));
       OLEDprint(0,11,0,0,nDate);
-
-      // //Print a letter for each mouse and activity histogram for last 24h
-      // String letters = "ABCDEFGHIJKL";
-      // for(uint8_t i = 0;i < 12;i++){
-      //   oled.setCursor(i*10,63);
-      //   oled.print(letters[i]);
-      // }
-      // //clip values
-      // for(uint8_t i = 0;i < 12;i++){
-      //   if(mice_visits[i+1][1] > 500) mice_visits[i+1][1] = 500;
-      //   if(mice_visits[i+1][2] > 500) mice_visits[i+1][2] = 500;
-      // }
-      // for(uint8_t i = 0;i < 12;i++){
-      //   oled.drawLine(i*10,52,i*10,52-(mice_visits[i+1][1]/50));     //x y x y Reader 1
-      //   oled.drawLine(i*10+1,52,i*10+1,52-(mice_visits[i+1][1]/50)); //x y x y 2 pixel wide
-      
-      //   oled.drawLine(i*10+3,52,i*10+3,52-(mice_visits[i+1][2]/50)); //x y x y Reader 2
-      //   oled.drawLine(i*10+4,52,i*10+4,52-(mice_visits[i+1][2]/50)); //x y x y 2 pixel wide
-      // }
 
       //update display
       oled.sendBuffer();
@@ -556,15 +555,16 @@ uint16_t getCountryCode(uint8_t in[7]){
   return countrycode;
 }
 
-//get temperature in float format ---------------------------------------------
-float getTemperature(uint8_t in[7]){  
-  if(in[6] <= 5){
-    return 0;
-  }
-  else{
-    //return in[6] * 0.108296277 + 23.22566506; //can be used to return human readable temp though correction factors are not yet final
-    return in[6];
-  }
+//get temperature in raw format ------------------------------------------------
+uint8_t getTemperature(uint8_t in[7]){
+  if(in[6] <= 5) return 0;
+  else return in[6];
+}
+
+//get temperature in °C format -------------------------------------------------
+float getTemperatureC(uint8_t in[7]){
+  if(in[6] <= 5) return 0;
+  else return (in[6] * 0.108296277 + 23.22566506); //can be used to return human readable temp though translation factors are based on n=1
 }
 
 //enable one reader, wait for confirmation from reader -------------------------
@@ -644,14 +644,20 @@ uint8_t fetchtag(byte reader, byte busrelease){
     tag[n] = Wire.read();
     n++;
   }
+
   //sum received values
   int16_t tag_sum = 0;
   for(uint8_t i = 0; i < sizeof(tag); i++){
     tag_sum = tag_sum + tag[i];
   }
-  //if tag is empty, no tag was detected
-  if(tag_sum > 0) return 1;
-  else return 0;
+  
+  //return status
+  if(n == 0){                     //if we didn't receive any data from reader, zero tag
+    for(uint8_t i = 0;i < 7;i++) tag[i] = 0;
+    return 2;
+  }
+  else if(tag_sum > 0) return 1;  //if we received data
+  else return 0;                  //we received data, but only zeros
 }
 
 //compare current and last tag, no change 0, new tag entered 1, switch 2 (2 present), tag left 3
@@ -676,8 +682,7 @@ uint8_t compareTags(byte currenttag[], byte lasttag[]){
 }
 
 //create string that is later saved to uSD -------------------------------------
-String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_present, int tagchange, String identifier){
-  String dataString;
+String createRFIDDataString(byte currenttag[], byte lasttag[], int tagchange, char identifier[], String dataString){
   time_t nowtime = now();
   
   //get country code and tag ID for currenttag (ct) and lasttag (lt)
@@ -685,12 +690,16 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
   int16_t ltCC = getCountryCode(lasttag);
   String ctID = getID(currenttag);
   String ltID = getID(lasttag);
-  float ctT = getTemperature(currenttag);
-  float ltT = getTemperature(lasttag);
-
+  //float ctT = getTemperatureC(currenttag); //Celsius is only recommended if temperature calibration is assured, otherwise convert later
+  //float ltT = getTemperatureC(lasttag);
+  uint8_t ctT = getTemperature(currenttag);
+  uint8_t ltT = getTemperature(lasttag);
+  
   //save tag data to dataString which is written to SD
+  if(dataString && tagchange) dataString += "\n"; //if datastring is not empty, and tag changed, add newline
+  
   if((tagchange == 2) || (tagchange == 3)){ //tag left (3) or switch (2)
-    dataString += identifier;
+    dataString += String(identifier);
     dataString += ",";
     dataString += nowtime;
     dataString += ",";
@@ -709,7 +718,7 @@ String createRFIDDataString(byte currenttag[], byte lasttag[], byte currenttag_p
   }
   //new tag entered (1) or switch (2)
   if((tagchange == 1) || (tagchange == 2)){
-    dataString += identifier;
+    dataString += String(identifier);
     dataString += ",";
     dataString += nowtime;
     dataString += ",";
