@@ -116,12 +116,12 @@ uint32_t rtccheck_time;    //time the rtc was checked last
 //##############################################################################
 
 //active reader pairs == amount of RFID modules in use
-const uint8_t arp = 1;
+const uint8_t arp = 3;
 
 //Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
 //output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
 //It is only necessary to asign identifiers equal to the amount of active reader pairs
-const char RFIDreaderNames[maxReaderPairs] = {'?','?','?','?','?','?','?','?','?','?'}; //Single character only!
+const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','C','?','?','?','?','?','?','?'}; //Single character only!
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
@@ -141,7 +141,7 @@ void setup(){
   //start Serial communication
   Serial.begin(115200);
   if(is_testing == 1){
-    while(!Serial); //wait for serial connection
+    //while(!Serial); //wait for serial connection
     Serial.println("alive");
   }
   
@@ -613,7 +613,7 @@ void setReaderMode(uint8_t reader,uint8_t mode){
 //Query reader for additional information --------------------------------------
 uint32_t fetchResFreq(uint8_t reader){
   setReaderMode(reader,3); //set to frequency measure mode and perform measurement
-  delay(1200);             //frequency measurement takes about >=1.1 seconds
+  delay(1500);             //frequency measurement takes about >=1.1 seconds
 
   //fetch measured frequency
   uint32_t resfreq = 0;
