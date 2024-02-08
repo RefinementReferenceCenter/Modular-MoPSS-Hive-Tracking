@@ -126,12 +126,14 @@ FsFile dataFileBackup;
 
 //Display
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
-uint32_t displaytime = 0;    //stores millis to time display refresh
 uint8_t displayon = 1;       //flag to en/disable display
+elapsedMillis displaytime;   //time since last display update
 
 //RFID
-uint32_t RFIDtime[maxReaderPairs];       //used to measure time before switching to next antenna
-uint8_t RFIDtoggle[maxReaderPairs];      //flag used to switch to next antenna
+uint32_t RFIDtime[maxReaderPairs];  //used to measure time before switching to next antenna
+uint8_t RFIDtoggle[maxReaderPairs]; //flag used to switch to next antenna
+uint8_t globalRFIDtoggle = 0;
+elapsedMillis globalRFIDtime;       //global timer to switch antennas in pairs
 
 uint8_t tag[7] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature
 uint8_t currenttag1[maxReaderPairs][7] = {}; //saves id of the tag that was read during the current read cycle
@@ -159,7 +161,7 @@ const uint8_t arp = 3;
 const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','C','?','?','?','?','?','?','?'}; //Single character only!
 
 //Interval at which the RTC should be updated, either via NTP or offline if enough data is available
-const uint16_t syncinterval = 600; //in seconds
+const uint16_t syncinterval = 30; //in seconds
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
@@ -185,6 +187,7 @@ void setup(){
   
   //start I2C
   Wire.begin();
+  //Wire.setClock(4000000);
   
   //----- Buttons & Fans & LEDs ------------------------------------------------
   pinMode(buttons,INPUT);
@@ -492,9 +495,9 @@ void setup(){
 void loop(){
 
   //create/clear strings that get written to uSD card
-  String RFIDdataString = ""; //holds tag and date
+  String RFIDdataString = "";   //holds tag and date
   String SENSORDataString = ""; //holds various sensor and diagnostics data
-  String MISCdataString = ""; //holds info of time sync events (and possibly other events)
+  String MISCdataString = "";   //holds info of time sync events (and possibly other events)
   
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
@@ -502,12 +505,18 @@ void loop(){
   //>=80ms are required to cold-start a tag for a successful read (at reduced range)
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
-  for(uint8_t r = 0;r < arp;r++){
-    if((millis() - RFIDtime[r]) >= 100){
-      RFIDtime[r] = millis();
-      
-      if(RFIDtoggle[r] == 1){
-        RFIDtoggle[r] = 0; //toggle the toggle
+  
+  if(globalRFIDtime >= 110){
+    Serial.print("RFIDtime ");
+    Serial.println(globalRFIDtime);
+  }
+  
+  if(globalRFIDtime >= 100){
+    globalRFIDtime = 0;  //reset time
+    
+    if(globalRFIDtoggle == 1){
+      for(uint8_t r = 0;r < arp;r++){
+        globalRFIDtoggle = 0; //toggle the toggle
         switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
         
         uint8_t tag_status = fetchtag(RFIDreader[r][0],1); //fetch data reader1 collected during on-time saved in variable: tag
@@ -519,8 +528,10 @@ void loop(){
         RFIDdataString = createRFIDDataString(currenttag1[r], lasttag1[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
         for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) lasttag1[r][i] = currenttag1[r][i]; //copy currenttag to lasttag
       }
-      else{
-        RFIDtoggle[r] = 1; //toggle the toggle
+    }
+    else{
+      for(uint8_t r = 0;r < arp;r++){
+        globalRFIDtoggle = 1; //toggle the toggle
         switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
         
         uint8_t tag_status = fetchtag(RFIDreader[r][1],1); //fetch data reader2 collected during on-time saved in variable: tag
@@ -538,7 +549,10 @@ void loop(){
   //----------------------------------------------------------------------------
   //update RTC -----------------------------------------------------------------
   //----------------------------------------------------------------------------
-  if(((((Teensy3Clock.get() % syncinterval) == 0) && (NTPsynctime > 2000)) || (NTPsynctime > 1000 * (syncinterval + 30))) || (force_sync && (NTPsynctime > 1000))){ //sync at full 10 minutes, or if missed after 10:30min., or if forced due to sync failure
+  if((globalRFIDtime < 25) && //only sync if last RFID sync was 25ms ago so we are not blocking the switching
+    (((((Teensy3Clock.get() % syncinterval) == 0) && (NTPsynctime > 2000)) || //sync at full x minutes/seconds but last sync must be at least 2 seconds ago
+    (NTPsynctime > 1000 * (syncinterval + 30))) || //or if we miss the exact second for syncing, sync after x time has elapsed
+    (force_sync && (NTPsynctime > 1000)))){ //or if forced sync due to sync failure
     
     NTPsynctime = 0;   //reset time of last sync
     char timeinfo[38]; //for verbose NTP server responses
@@ -596,9 +610,9 @@ void loop(){
   //----------------------------------------------------------------------------
   //update display -------------------------------------------------------------
   //----------------------------------------------------------------------------
-  if((millis() - displaytime) > 1000){ //once every second
+  if((globalRFIDtime < 50) && (displaytime > 1000)){ //once every second, and only if we still have 50ms to go before next sync
     displaytime = millis();
-
+    
     //switch display on/off if button pressed
     if(analogRead(buttons) < 850){
       displayon = !displayon;
@@ -607,26 +621,18 @@ void loop(){
         oled.sendBuffer();
       }
     }
-
+    
     if(displayon){
       oled.clearBuffer(); //clear display
-      time_t rtctime = now(); //create nice date string
-      uint8_t D = day(rtctime);
-      uint8_t M = month(rtctime);
-      String nDate = "";
-
-      if(D < 10) nDate += "0";
-      nDate += D;
-      nDate += "-";
-      if(M < 10) nDate += "0";
-      nDate += M;
-      nDate += "-";
-      nDate += year(rtctime);
-
+      
+      time_t rtctime = Teensy3Clock.get(); //get current tim
+      char ndate[11]; //DD-MM-YYYY
+      sprintf(ndate,"%02u-%02u-%04u",day(rtctime),month(rtctime),year(rtctime));
+      
       //display current time from RTC and date
       OLEDprint(0,0,0,0,nicetime(rtctime));
-      OLEDprint(0,11,0,0,nDate);
-
+      OLEDprint(0,11,0,0,ndate);
+      
       //update display
       oled.sendBuffer();
     }
@@ -674,7 +680,7 @@ time_t getTeensy3Time(){
 
 //Return time as string in HH:MM:SS format -------------------------------------
 String nicetime(time_t nowtime){
-  char ntime[10]; //HH:MM:SS
+  char ntime[11]; //HH:MM:SS
   sprintf(ntime,"%02u:%02u:%02u",hour(nowtime),minute(nowtime),second(nowtime));
 	return ntime;
 }
@@ -1221,3 +1227,37 @@ String vhrTime(String text,double time){
   return text;
 }
 
+// void test(){
+//   if(globalRFIDtoggle == 1){ //switch all readers "simultaniously"
+//     globalRFIDtoggle = 0; //toggle the toggle
+//     for(uint8_t r = 0;r < arp;r++){
+//       switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
+      
+//       uint8_t tag_status = fetchtag(RFIDreader[r][0],1); //fetch data reader1 collected during on-time saved in variable: tag
+//       for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
+      
+//       //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
+//       uint8_t tag_switch = compareTags(currenttag1[r],lasttag1[r]);
+//       char reader[4] = {'R',RFIDreaderNames[r],'1'};
+//       RFIDdataString = createRFIDDataString(currenttag1[r], lasttag1[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
+//       for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) lasttag1[r][i] = currenttag1[r][i]; //copy currenttag to lasttag
+//     }
+//   }
+//   else{
+//     globalRFIDtoggle = 1; //toggle the toggle
+//     for(uint8_t r = 0;r < arp;r++){ //switch all readers "simultaniously"
+//       switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
+      
+//       uint8_t tag_status = fetchtag(RFIDreader[r][1],1); //fetch data reader2 collected during on-time saved in variable: tag
+//       for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
+      
+//       //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
+//       uint8_t tag_switch = compareTags(currenttag2[r],lasttag2[r]);
+//       char reader[4] = {'R',RFIDreaderNames[r],'2'};
+//       RFIDdataString = createRFIDDataString(currenttag2[r], lasttag2[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
+//       for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) lasttag2[r][i] = currenttag2[r][i]; //copy currenttag to lasttag
+//     }
+//   }
+// }
+  
+  
