@@ -305,6 +305,9 @@ void setup(){
   
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
+  
+  while(1){
+  
   for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
     OLEDprint(0,0,1,1,">>> RFID Setup <<<");
     
@@ -323,19 +326,11 @@ void setup(){
       OLEDprintFraction(1,5,0,1,(float)reader1freq[r]/1000,3);
       OLEDprint(1,12,0,1,"kHz");
       
-      if((abs(reader1freq[r] - 134200) >= 1000)){
-        OLEDprint(4,0,0,1,"Antenna detuned!");
-        OLEDprint(5,0,0,1,"CONFIRM");
-        OLEDprint(5,14,0,1,"REPEAT");
-        uint8_t buttonpress = getButton();
-        if(buttonpress == 1) RFIDmodulestate = 1;
-      }
-      
       reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
       OLEDprintFraction(2,5,0,1,(float)reader2freq[r]/1000,3);
       OLEDprint(2,12,0,1,"kHz");
       
-      if((abs(reader2freq[r] - 134200) >= 1000)){
+      if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000)){
         OLEDprint(4,0,0,1,"Antenna detuned!");
         OLEDprint(5,0,0,1,"CONFIRM");
         OLEDprint(5,14,0,1,"REPEAT");
@@ -349,6 +344,9 @@ void setup(){
       }
     }
   }
+  
+  }
+  
   
   //----- Setup SD Card --------------------------------------------------------
   //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
