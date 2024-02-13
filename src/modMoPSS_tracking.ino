@@ -67,27 +67,91 @@ void setup(){
   
   while(1){
     for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
-      uint8_t RFIDmodulestate = 0;
+
+      reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
+      Serial.print(RFIDreader[r][0]);
+      Serial.print(" ");
+      Serial.println(reader1freq[r]);
       
-      while(RFIDmodulestate == 0){
-        reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
-        Serial.println(reader1freq[r]);
-        
-        if((abs(reader1freq[r] - 134200) >= 1000)){
-          uint8_t buttonpress = getButton();
-          if(buttonpress == 1) RFIDmodulestate = 1;
-        }
-        
-        reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
-        Serial.println(reader2freq[r]);
-        
-        if((abs(reader2freq[r] - 134200) >= 1000)){
-          uint8_t buttonpress = getButton();
-          if(buttonpress == 1) RFIDmodulestate = 1;
-        }
+      if((abs(reader1freq[r] - 134200) >= 1000)){
+        uint8_t buttonpress = getButton();
       }
+      
+      reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
+      Serial.print(RFIDreader[r][1]);
+      Serial.print(" ");
+      Serial.println(reader2freq[r]);
+      
+      if((abs(reader2freq[r] - 134200) >= 1000)){
+        uint8_t buttonpress = getButton();
+      }
+        
+
     }
   }
+
+
+  // uint8_t r = 0;
+  
+  // while(1){
+    
+  //   uint8_t RFIDmodulestate = 0;
+  //   while(RFIDmodulestate == 0){
+  //     // reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
+  //     // Serial.println(reader1freq[r]);
+      
+  //     // if((abs(reader1freq[r] - 134200) >= 1000)){
+  //     //   uint8_t buttonpress = getButton();
+  //     //   if(buttonpress == 1) RFIDmodulestate = 1;
+  //     // }
+      
+  //     // for(uint8_t r = 0;r < arp;r++){
+      
+  //     // setReaderMode(RFIDreader[r][0],3);
+  //     // delay(1500);
+  //     // Wire.requestFrom(RFIDreader[r][0],4,1);
+  //     // while(Wire.available()){
+  //     //   Wire.read();
+  //     //   //delayMicroseconds(1);
+  //     // }
+  //     // setReaderMode(RFIDreader[r][0],2);
+      
+      
+  //     // setReaderMode(RFIDreader[r][1],3);
+  //     // delay(1500);
+  //     // Wire.requestFrom(RFIDreader[r][1],4,1);
+  //     // while(Wire.available()){
+  //     //   Wire.read();
+  //     //   //delayMicroseconds(1);
+  //     // }
+  //     // setReaderMode(RFIDreader[r][1],2);
+      
+  //     // }
+      
+  //     // setReaderMode(RFIDreader[1][0],3);
+  //     // delay(1500);
+  //     // Wire.requestFrom(RFIDreader[1][0],4,1);
+  //     // while(Wire.available()){
+  //     //   Wire.read();
+  //     // }
+  //     // setReaderMode(RFIDreader[1][0],2);
+      
+      
+      
+  //     // reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
+  //     // Serial.println(reader2freq[r]);
+      
+  //     // if((abs(reader2freq[r] - 134200) >= 1000)){
+  //     //   uint8_t buttonpress = getButton();
+  //     //   if(buttonpress == 1) RFIDmodulestate = 1;
+  //     // }
+    
+  //   }
+    
+    
+
+    
+  // }
 
 } //end of setup
 
