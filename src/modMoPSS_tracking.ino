@@ -57,7 +57,7 @@ const char SOFTWARE_REV[] = "v1.0.0";
 //Ethernet & NTP
 using namespace qindesign::network;
 
-constexpr uint32_t DHCPTimeout = 15'000;       //15 seconds timeout to get DHCP IP address
+constexpr uint32_t DHCPTimeout = 1'000;       //15 seconds timeout to get DHCP IP address
 constexpr uint16_t NTPPort = 123;              //port for ntp requests
 constexpr uint32_t EpochDiff = 2'208'988'800;  //01-Jan-1900 00:00:00 -> 01-Jan-1970 00:00:00
 constexpr uint32_t EBreakTime = 2'085'978'496; //Epoch -> 07-Feb-2036 06:28:16
@@ -128,6 +128,8 @@ FsFile dataFileBackup;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
 uint8_t displayon = 1;       //flag to en/disable display
 elapsedMillis displaytime;   //time since last display update
+uint8_t page = 0;            //currently displayed page
+int16_t maxpages;            //total number of pages
 
 //RFID
 uint32_t RFIDtime[maxReaderPairs];  //used to measure time before switching to next antenna
@@ -140,6 +142,11 @@ uint8_t currenttag1[maxReaderPairs][7] = {}; //saves id of the tag that was read
 uint8_t currenttag2[maxReaderPairs][7] = {};
 uint8_t lasttag1[maxReaderPairs][7] = {};    //saves id of the tag that was read during the previous read cycle
 uint8_t lasttag2[maxReaderPairs][7] = {};
+
+uint8_t latestreadtag1[maxReaderPairs][7] = {}; //stores the last recorded tag, currenttag/lasttag are cleared when no tag was read
+uint8_t latestreadtag2[maxReaderPairs][7] = {};
+uint32_t latest_tagtime1[maxReaderPairs] = {};  //stores the time of the last recorded tag, currenttag/lasttag are cleared when no tag was read
+uint32_t latest_tagtime2[maxReaderPairs] = {};
 
 int32_t reader1freq[maxReaderPairs] = {};    //saves resonant frequency measured at bootup
 int32_t reader2freq[maxReaderPairs] = {};
@@ -187,7 +194,7 @@ void setup(){
   
   //start I2C
   Wire.begin();
-  //Wire.setClock(4000000);
+  //Wire.setClock(100000);
   
   //----- Buttons & Fans & LEDs ------------------------------------------------
   pinMode(buttons,INPUT);
@@ -200,6 +207,7 @@ void setup(){
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
+  maxpages = arp - 1; //maximum number of pages + NTP?
   
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time);
@@ -314,11 +322,20 @@ void setup(){
       reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
       OLEDprintFraction(1,5,0,1,(float)reader1freq[r]/1000,3);
       OLEDprint(1,12,0,1,"kHz");
+      
+      if((abs(reader1freq[r] - 134200) >= 1000)){
+        OLEDprint(4,0,0,1,"Antenna detuned!");
+        OLEDprint(5,0,0,1,"CONFIRM");
+        OLEDprint(5,14,0,1,"REPEAT");
+        uint8_t buttonpress = getButton();
+        if(buttonpress == 1) RFIDmodulestate = 1;
+      }
+      
       reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
       OLEDprintFraction(2,5,0,1,(float)reader2freq[r]/1000,3);
       OLEDprint(2,12,0,1,"kHz");
-
-      if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000)){
+      
+      if((abs(reader2freq[r] - 134200) >= 1000)){
         OLEDprint(4,0,0,1,"Antenna detuned!");
         OLEDprint(5,0,0,1,"CONFIRM");
         OLEDprint(5,14,0,1,"REPEAT");
@@ -506,11 +523,6 @@ void loop(){
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
   
-  if(globalRFIDtime >= 110){
-    Serial.print("RFIDtime ");
-    Serial.println(globalRFIDtime);
-  }
-  
   if(globalRFIDtime >= 100){
     globalRFIDtime = 0;  //reset time
     
@@ -527,6 +539,12 @@ void loop(){
         char reader[4] = {'R',RFIDreaderNames[r],'1'};
         RFIDdataString = createRFIDDataString(currenttag1[r], lasttag1[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
         for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) lasttag1[r][i] = currenttag1[r][i]; //copy currenttag to lasttag
+        
+        if(tag_status == 1){ //tag is not empty
+          for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) latestreadtag1[r][i] = currenttag1[r][i]; //copy latesttag
+          latest_tagtime1[r] = Teensy3Clock.get();
+        }
+        
       }
     }
     else{
@@ -542,6 +560,11 @@ void loop(){
         char reader[4] = {'R',RFIDreaderNames[r],'2'};
         RFIDdataString = createRFIDDataString(currenttag2[r], lasttag2[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
         for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) lasttag2[r][i] = currenttag2[r][i]; //copy currenttag to lasttag
+        
+        if(tag_status == 1){ //tag is not empty
+          for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) latestreadtag2[r][i] = currenttag2[r][i]; //copy latesttag
+          latest_tagtime2[r] = Teensy3Clock.get();
+        }
       }
     }
   }
@@ -611,10 +634,11 @@ void loop(){
   //update display -------------------------------------------------------------
   //----------------------------------------------------------------------------
   if((globalRFIDtime < 50) && (displaytime > 1000)){ //once every second, and only if we still have 50ms to go before next sync
-    displaytime = millis();
+    displaytime = 0;
+    uint8_t button = getNBButton();
     
     //switch display on/off if button pressed
-    if(analogRead(buttons) < 850){
+    if(button ==  2){
       displayon = !displayon;
       if(!displayon){
         oled.clearBuffer();   //clear display
@@ -625,15 +649,51 @@ void loop(){
     if(displayon){
       oled.clearBuffer(); //clear display
       
-      time_t rtctime = Teensy3Clock.get(); //get current tim
+      time_t rtctime = Teensy3Clock.get(); //get current time
       char ndate[11]; //DD-MM-YYYY
       sprintf(ndate,"%02u-%02u-%04u",day(rtctime),month(rtctime),year(rtctime));
       
-      //display current time from RTC and date
+      ////--- draw UI elements ---
+      if(button == 1) page -= 1;
+      if(button == 3) page += 1;
+      if(page > maxpages) page = 0;
+      if(page < 0) page = maxpages;
+      
       OLEDprint(0,0,0,0,nicetime(rtctime));
       OLEDprint(0,11,0,0,ndate);
       
-      //update display
+      OLEDprint(5,0,0,0,"PREV");
+      OLEDprint(5,17,0,0,"NEXT");
+      OLEDprint(5,9,0,0,"OFF");
+      
+      //--- RFID pages display last read tag
+      uint8_t r;
+      if(page == 0) r = 0;
+      if(page == 1) r = 1;
+      if(page == 2) r = 2;
+      
+      char reader[3] = {'R',RFIDreaderNames[r]}; //create string for the reader name
+      //reader 1
+      String shorttagID = getID(latestreadtag1[r]); //get tag in string format
+      shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1); //use last 7 digits of RFID tag
+      float tagTemp = getTemperatureC(latestreadtag1[r]); //get temperature in °C format
+      String hrtag;
+      hrtag = String(reader) + "1: " + shorttagID + " | " + String(tagTemp,1) + "C";  //make a nice string for printing
+      String hrtagtime = String(reader) + "1: " + nicetime(latest_tagtime1[r]); //make a nice string for printing
+      
+      OLEDprint(1,0,0,0,hrtag);
+      OLEDprint(2,0,0,0,hrtagtime);
+      //reader 2
+      shorttagID = getID(latestreadtag2[r]);
+      shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1);
+      tagTemp = getTemperatureC(latestreadtag2[r]);
+      hrtag = String(reader) + "2: " + shorttagID + " | " + String(tagTemp,1) + "C";
+      hrtagtime = String(reader) + "2: "  + nicetime(latest_tagtime2[r]);
+      
+      OLEDprint(3,0,0,0,hrtag);
+      OLEDprint(4,0,0,0,hrtagtime);
+      
+      //--- update display ---
       oled.sendBuffer();
     }
   }
@@ -861,6 +921,13 @@ uint8_t fetchtag(byte reader, byte busrelease){
   else return 0;                  //we received data, but only zeros
 }
 
+//sum all values from tag
+int16_t tagSum(byte tag[]){
+  int16_t sum = 0;
+  for(uint8_t i = 0; i < sizeof(tag); i++) sum = sum + tag[i];
+  return sum;
+}
+
 //compare current and last tag, no change 0, new tag entered 1, switch 2 (2 present), tag left 3
 uint8_t compareTags(byte currenttag[], byte lasttag[]){
   uint8_t tagchange = 0; //0 = no change, 1 = new tag entered, 2 = switch (2 present), 3 = tag left
@@ -884,7 +951,7 @@ uint8_t compareTags(byte currenttag[], byte lasttag[]){
 
 //create string that is later saved to uSD -------------------------------------
 String createRFIDDataString(byte currenttag[], byte lasttag[], int tagchange, char identifier[], String dataString){
-  time_t nowtime = now();
+  time_t nowtime = Teensy3Clock.get();
   
   //get country code and tag ID for currenttag (ct) and lasttag (lt)
   int16_t ctCC = getCountryCode(currenttag);
@@ -959,6 +1026,15 @@ uint8_t getButton(){
     input = analogRead(buttons);
     delay(50);
   }
+  if(input <= 150) return 1;
+  if(input > 150 && input <= 450) return 2;
+  if(input > 450 && input <= 850) return 3;
+}
+
+//returns which button is currently pressed (non-blocking) ---------------------
+uint8_t getNBButton(){
+  int16_t input = analogRead(buttons);
+  
   if(input <= 150) return 1;
   if(input > 150 && input <= 450) return 2;
   if(input > 450 && input <= 850) return 3;
