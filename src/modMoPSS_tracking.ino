@@ -2,10 +2,13 @@
 
 //#include <Wire.h>       //I2C communication
 #include <i2c_driver_wire.h>
+//#include <i2c_device.h>
+
+
 
 //----- declaring variables ----------------------------------------------------
 
-//I2C addresses
+//I2C
 //maximum number of RFID modules to support, when altering also change I2C address array to fit!
 const uint8_t maxReaderPairs = 10;
 //RFID reader pairs
@@ -20,6 +23,13 @@ const uint8_t RFIDreader[maxReaderPairs][2] = {  //for 10 reader pair addresses
   {0x16,0x17},
   {0x18,0x19},
   {0x1a,0x1b}};
+  
+// The I2C device. Determines which pins we use on the Teensy.
+// I2CMaster& master = Master;
+
+// I2CDevice RFID1 = I2CDevice(master, 0x08, _BIG_ENDIAN);
+// I2CDevice RFID2 = I2CDevice(master, 0x09, _BIG_ENDIAN);
+
 
 //Buttons
 const int buttons = A13;    //~1022 not pressed, ~1 left, ~323 middle, ~711 right
@@ -37,7 +47,7 @@ int32_t reader2freq[maxReaderPairs] = {};
 //##############################################################################
 
 //active reader pairs == amount of RFID modules in use
-const uint8_t arp = 3;
+const uint8_t arp = 1;
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
@@ -55,8 +65,12 @@ void setup(){
   }
   
   //start I2C
+  Wire.setClock(400000); 
   Wire.begin();
   Wire.setClock(400000);
+  
+  //master.begin(400 * 1000U);
+  
   
   //----- Buttons & Fans & LEDs ------------------------------------------------
   pinMode(buttons,INPUT);
@@ -66,26 +80,32 @@ void setup(){
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
   
-  while(1){
-    for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
+  
+  while(true){
+    //uint8_t r = 0;
+    for(uint8_t r = 0;r < 1;r++){   //iterate through all active reader pairs
       reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
       Serial.print(RFIDreader[r][0]);
       Serial.print(" ");
       Serial.println(reader1freq[r]);
       
-      if((abs(reader1freq[r] - 134200) >= 1000)){
-        uint8_t buttonpress = getButton();
-      }
+      // if((abs(reader1freq[r] - 134200) >= 1000)){
+      //   uint8_t buttonpress = getButton();
+      //   Serial.println("detune 1");
+      // }
       
       reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
       Serial.print(RFIDreader[r][1]);
       Serial.print(" ");
       Serial.println(reader2freq[r]);
       
-      if((abs(reader2freq[r] - 134200) >= 1000)){
-        uint8_t buttonpress = getButton();
-      }
+      // if((abs(reader2freq[r] - 134200) >= 1000)){
+      //   uint8_t buttonpress = getButton();
+      //   Serial.println("detune 2");
+      // }
+    
     }
+    Serial.println("end loop"); //needs something after 1-loop for-loop
   }
 
 
@@ -117,7 +137,7 @@ void setReaderMode(uint8_t reader,uint8_t mode){
 uint32_t fetchResFreq(uint8_t reader){
   setReaderMode(reader,3); //set to frequency measure mode and perform measurement
   delay(1500);             //frequency measurement takes about >=1.1 seconds
-
+  
   //fetch measured frequency
   uint32_t resfreq = 0;
   uint8_t rcv[4];
@@ -132,10 +152,10 @@ uint32_t fetchResFreq(uint8_t reader){
   resfreq |= (rcv[2] << 16);
   resfreq |= (rcv[1] <<  8);
   resfreq |= (rcv[0] <<  0);
-
+  
   //leave measure mode
   setReaderMode(reader,2);  //set to tag-transmitting mode
-
+  
   return resfreq;
 }
 
