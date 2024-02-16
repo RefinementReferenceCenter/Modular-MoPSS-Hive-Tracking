@@ -1,9 +1,10 @@
 // - PJRC Teensy 4.1 (with ethernet)
 
 //#include <Wire.h>       //I2C communication
+//#include <i2c_driver.h>
 #include <i2c_driver_wire.h>
 //#include <i2c_device.h>
-
+#include <U8g2lib.h>  //for SSD1306 OLED Display
 
 
 //----- declaring variables ----------------------------------------------------
@@ -26,10 +27,14 @@ const uint8_t RFIDreader[maxReaderPairs][2] = {  //for 10 reader pair addresses
   
 // The I2C device. Determines which pins we use on the Teensy.
 // I2CMaster& master = Master;
-
 // I2CDevice RFID1 = I2CDevice(master, 0x08, _BIG_ENDIAN);
 // I2CDevice RFID2 = I2CDevice(master, 0x09, _BIG_ENDIAN);
 
+//Display
+const uint8_t oledDisplay = 0x78; //I2C address oled display
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
+uint32_t displaytime = 0;         //stores millis to time display refresh
+uint8_t displayon = 1;            //flag to en/disable display
 
 //Buttons
 const int buttons = A13;    //~1022 not pressed, ~1 left, ~323 middle, ~711 right
@@ -65,12 +70,16 @@ void setup(){
   }
   
   //start I2C
-  Wire.setClock(400000); 
+  Wire.setClock(1000000); 
   Wire.begin();
-  Wire.setClock(400000);
+  Wire.setClock(1000000);
   
-  //master.begin(400 * 1000U);
+//  master.begin(400 * 1000U);
   
+  //----- Display --------------------------------------------------------------
+  oled.setI2CAddress(oledDisplay);
+  oled.begin();
+  oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
   
   //----- Buttons & Fans & LEDs ------------------------------------------------
   pinMode(buttons,INPUT);
@@ -79,6 +88,16 @@ void setup(){
   
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
+  
+  delay(1000);
+  // while(1){
+  //   uint8_t setmode = 3;
+  //   RFID1.write(0x00, setmode, false);
+  //   delay(500);
+    
+  // }
+  
+  OLEDprint(0,0,0,1,"bldfgdfga");
   
   
   while(true){
@@ -89,20 +108,20 @@ void setup(){
       Serial.print(" ");
       Serial.println(reader1freq[r]);
       
-      // if((abs(reader1freq[r] - 134200) >= 1000)){
-      //   uint8_t buttonpress = getButton();
-      //   Serial.println("detune 1");
-      // }
+      if((abs(reader1freq[r] - 134200) >= 1000)){
+        uint8_t buttonpress = getButton();
+        Serial.println("detune 1");
+      }
       
       reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
       Serial.print(RFIDreader[r][1]);
       Serial.print(" ");
       Serial.println(reader2freq[r]);
       
-      // if((abs(reader2freq[r] - 134200) >= 1000)){
-      //   uint8_t buttonpress = getButton();
-      //   Serial.println("detune 2");
-      // }
+      if((abs(reader2freq[r] - 134200) >= 1000)){
+        uint8_t buttonpress = getButton();
+        Serial.println("detune 2");
+      }
     
     }
     Serial.println("end loop"); //needs something after 1-loop for-loop
@@ -169,4 +188,27 @@ uint8_t getButton(){
   if(input <= 150) return 1;
   if(input > 150 && input <= 450) return 2;
   if(input > 450 && input <= 850) return 3;
+}
+
+//Helper for printing to OLED Display (text) -----------------------------------
+void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, String text){
+  if(clear) oled.clearBuffer(); //clear screen 
+  oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
+  oled.print(text);
+  if(update) oled.sendBuffer();
+}
+
+//Helper for printing to OLED Display (number) ---------------------------------
+void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, int32_t number){
+  if(clear) oled.clearBuffer(); //clear screen  
+  oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
+  oled.print(number);
+  if(update) oled.sendBuffer();
+}
+
+//Helper for printing to OLED Display (number with n decimals) -----------------
+void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, float number, uint8_t decimals){
+  oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
+  oled.print(number,decimals);
+  if(update) oled.sendBuffer();
 }
