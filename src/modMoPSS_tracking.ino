@@ -44,11 +44,11 @@ D19 - SCL
  _______/                        \_______
 
 *///----------------------------------------------------------------------------
-#include <TimeLib.h>    //Manage Real Time CLock
-#include <Wire.h>       //I2C communication
-#include <SdFat.h>      //Access SD Cards
-#include <U8g2lib.h>    //for SSD1306 OLED Display
-#include <QNEthernet.h> //for ethernet
+#include <TimeLib.h>         //Manage Real Time CLock
+#include <i2c_driver_wire.h> //I2C communication
+#include <SdFat.h>           //Access SD Cards
+#include <U8g2lib.h>         //for SSD1306 OLED Display
+#include <QNEthernet.h>      //for ethernet
 
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
