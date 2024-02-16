@@ -45,7 +45,7 @@ D19 - SCL
 
 *///----------------------------------------------------------------------------
 #include <TimeLib.h>         //Manage Real Time CLock
-#include <i2c_driver_wire.h> //I2C communication
+#include <i2c_driver_wire.h> //I2C communication !!! libraries using Wire.h must be adjusted to use i2c_driver_wire.h instead !!!
 #include <SdFat.h>           //Access SD Cards
 #include <U8g2lib.h>         //for SSD1306 OLED Display
 #include <QNEthernet.h>      //for ethernet
@@ -57,7 +57,7 @@ const char SOFTWARE_REV[] = "v1.0.0";
 //Ethernet & NTP
 using namespace qindesign::network;
 
-constexpr uint32_t DHCPTimeout = 1'000;       //15 seconds timeout to get DHCP IP address
+constexpr uint32_t DHCPTimeout = 15'000;        //15 seconds timeout to get DHCP IP address
 constexpr uint16_t NTPPort = 123;              //port for ntp requests
 constexpr uint32_t EpochDiff = 2'208'988'800;  //01-Jan-1900 00:00:00 -> 01-Jan-1970 00:00:00
 constexpr uint32_t EBreakTime = 2'085'978'496; //Epoch -> 07-Feb-2036 06:28:16
@@ -86,7 +86,7 @@ uint8_t NTP_sync_failed = 0; //counts how often the NTP sync failed
 uint8_t force_sync = 0;      //force NTP sync flag
 double burst_array[3];       //stores RTC drift values of multiple syncs to get more accurate drift values
 double NTP_timestamps[5];    //stores the timestamps of the NTP packet, local send/rec, server send/rec and adjusted time
-const double clock_set_offset = 0.000939; //time it takes the RTC to be set (RTC is briefly stopped while being set)
+const double clock_set_offset = 0.00096084; //time it takes the RTC to be set (RTC is briefly stopped while being set)
 
 
 //I2C addresses
@@ -132,10 +132,8 @@ uint8_t page = 0;            //currently displayed page
 int16_t maxpages;            //total number of pages
 
 //RFID
-uint32_t RFIDtime[maxReaderPairs];  //used to measure time before switching to next antenna
-uint8_t RFIDtoggle[maxReaderPairs]; //flag used to switch to next antenna
-uint8_t globalRFIDtoggle = 0;
-elapsedMillis globalRFIDtime;       //global timer to switch antennas in pairs
+uint8_t globalRFIDtoggle = 0; //flag to switch between antennas of all modules
+elapsedMillis globalRFIDtime; //global timer to switch antennas in pairs
 
 uint8_t tag[7] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature
 uint8_t currenttag1[maxReaderPairs][7] = {}; //saves id of the tag that was read during the current read cycle
@@ -168,7 +166,7 @@ const uint8_t arp = 3;
 const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','C','?','?','?','?','?','?','?'}; //Single character only!
 
 //Interval at which the RTC should be updated, either via NTP or offline if enough data is available
-const uint16_t syncinterval = 30; //in seconds
+const uint16_t syncinterval = 1; //in seconds
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
@@ -193,13 +191,14 @@ void setup(){
   }
   
   //start I2C
+  Wire.setClock(400 * 1000U); //100k, 400k, 1M are allowed //might be altered by oled to 400k
   Wire.begin();
-  //Wire.setClock(100000);
   
   //----- Buttons & Fans & LEDs ------------------------------------------------
   pinMode(buttons,INPUT);
   pinMode(statusLED,OUTPUT);
   pinMode(errorLED,OUTPUT);
+  pinMode(16,OUTPUT); //timing
   
   //----- Sensors --------------------------------------------------------------
   
@@ -207,10 +206,10 @@ void setup(){
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-  maxpages = arp - 1; //maximum number of pages + NTP?
+  maxpages = -1 + arp; //maximum number of pages + NTP?
   
   //----- Real Time Clock ------------------------------------------------------
-  setSyncProvider(getTeensy3Time);
+  setSyncProvider(getTeensy3Time); //set RTC to time of upload from PC
   
   //----- Ethernet -------------------------------------------------------------
   //fetch mac address
@@ -293,7 +292,7 @@ void setup(){
 
   //create NTP request package
   memset(ntpbuf, 0, 48);
-  ntpbuf[0] = 0b00'100'011; // LI leap indicator warns of leap seconds, Version number (current 3), Mode 3 = client
+  ntpbuf[0] = 0b00'100'011; //LI leap indicator warns of leap seconds, Version number (current 3), Mode 3 = client
   ntpbuf[1] = 0;    //stratum, 0 = unspecified
   ntpbuf[2] = 6;    //maximum time between successive messages 2^x
   ntpbuf[3] = 0xF1; // Peer Clock Precision -15
@@ -305,34 +304,31 @@ void setup(){
   
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
-  
-  while(1){
-  
   for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
-    OLEDprint(0,0,1,1,">>> RFID Setup <<<");
+    OLEDprint(0,0,1,0,">>> RFID Setup <<<");
     
     char reader1[4] = {'R',RFIDreaderNames[r],'1'};
-    OLEDprint(1,0,0,1,reader1);
-    OLEDprint(1,3,0,1,":");
+    OLEDprint(1,0,0,0,reader1);
+    OLEDprint(1,3,0,0,":");
     
     char reader2[4] = {'R',RFIDreaderNames[r],'2'};
-    OLEDprint(2,0,0,1,reader2);
+    OLEDprint(2,0,0,0,reader2);
     OLEDprint(2,3,0,1,":");
     
     uint8_t RFIDmodulestate = 0;
     
     while(RFIDmodulestate == 0){
       reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
-      OLEDprintFraction(1,5,0,1,(float)reader1freq[r]/1000,3);
-      OLEDprint(1,12,0,1,"kHz");
+      OLEDprintFraction(1,5,0,0,(float)reader1freq[r]/1000,3);
+      OLEDprint(1,12,0,1," kHz");
       
       reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
-      OLEDprintFraction(2,5,0,1,(float)reader2freq[r]/1000,3);
-      OLEDprint(2,12,0,1,"kHz");
+      OLEDprintFraction(2,5,0,0,(float)reader2freq[r]/1000,3);
+      OLEDprint(2,12,0,1," kHz");
       
       if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000)){
-        OLEDprint(4,0,0,1,"Antenna detuned!");
-        OLEDprint(5,0,0,1,"CONFIRM");
+        OLEDprint(4,0,0,0,"Antenna detuned!");
+        OLEDprint(5,0,0,0,"CONFIRM");
         OLEDprint(5,14,0,1,"REPEAT");
         uint8_t buttonpress = getButton();
         if(buttonpress == 1) RFIDmodulestate = 1;
@@ -345,18 +341,15 @@ void setup(){
     }
   }
   
-  }
-  
-  
   //----- Setup SD Card --------------------------------------------------------
   //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
-  OLEDprint(0,0,1,1,">>>  uSD  Setup  <<<");
-  OLEDprint(1,0,0,1,"SD EXternal:"); //see if the cards are present and can be initialized
+  OLEDprint(0,0,1,0,">>>  uSD  Setup  <<<");
+  OLEDprint(1,0,0,0,"SD EXternal:"); //see if the cards are present and can be initialized
   OLEDprint(2,0,0,1,"SD INternal:");
   
   //SD card external (main, for data collection)
   if(!SD.begin(SDcs)){
-    OLEDprint(1,13,0,1,"FAIL!");
+    OLEDprint(1,13,0,0,"FAIL!");
     OLEDprint(5,0,0,1,"PROGRAM STOPPED");
     criticalerror();
   }
@@ -366,7 +359,7 @@ void setup(){
   }
   //SD card internal (Backup)
   if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
-    OLEDprint(2,13,0,1,"FAIL!");
+    OLEDprint(2,13,0,0,"FAIL!");
     OLEDprint(5,0,0,1,"PROGRAM STOPPED");
     criticalerror();
   }
@@ -514,6 +507,11 @@ void loop(){
   String SENSORDataString = ""; //holds various sensor and diagnostics data
   String MISCdataString = "";   //holds info of time sync events (and possibly other events)
   
+  uint8_t button = getNBButton();
+  if(button == 1)
+  if(button == 2)
+  if(button == 3)
+  
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
   //----------------------------------------------------------------------------
@@ -631,7 +629,7 @@ void loop(){
   //----------------------------------------------------------------------------
   //update display -------------------------------------------------------------
   //----------------------------------------------------------------------------
-  if((globalRFIDtime < 50) && (displaytime > 1000)){ //once every second, and only if we still have 50ms to go before next sync
+  if((globalRFIDtime < 50) && (displaytime >= 1000)){ //once every second, and only if we still have 50ms to go before next sync
     displaytime = 0;
     uint8_t button = getNBButton();
     
@@ -743,24 +741,6 @@ String nicetime(time_t nowtime){
 	return ntime;
 }
 
-//Sensors related functions ----------------------------------------------------
-String createSENSORDataString(String identifier, String event, String dataString){
-  time_t nowtime = now();
-
-  if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
-  dataString += identifier;
-  dataString += ",";
-  dataString += nowtime;
-  dataString += ",";
-  dataString += "";
-  dataString += ",";
-  dataString += millis();
-  dataString += ",";
-  dataString += event;
-
-  return dataString;
-}
-
 //Helper for printing to OLED Display (text) -----------------------------------
 void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, String text){
   if(clear) oled.clearBuffer(); //clear screen 
@@ -857,6 +837,10 @@ void switchReaders(byte readerON, byte readerOFF){
   Wire.beginTransmission(readerOFF);
   Wire.write(0);
   Wire.endTransmission(1);
+  
+  // enableReader(readerON);
+  // delayMicroseconds(1200);
+  // disableReader(readerOFF);
 }
 
 //sets mode of the RFID reader 2 = RFID mode (retun tags), 3 = measure mode (return resonant frequency)
@@ -945,6 +929,42 @@ uint8_t compareTags(byte currenttag[], byte lasttag[]){
     }
   }
   return(tagchange); //return how (if) the tag changed
+}
+
+//Sensors related functions ----------------------------------------------------
+String createSENSORDataString(String identifier, String event, String dataString){
+  time_t nowtime = now();
+
+  if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
+  dataString += identifier;
+  dataString += ",";
+  dataString += nowtime;
+  dataString += ",";
+  dataString += "";
+  dataString += ",";
+  dataString += millis();
+  dataString += ",";
+  dataString += event;
+
+  return dataString;
+}
+
+//Create misc data String ------------------------------------------------------
+String createMISCDataString(String identifier, String event1,String event2,String dataString){
+  time_t unixtime = Teensy3Clock.get();
+
+  if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
+  dataString += identifier;
+  dataString += ",";
+  dataString += unixtime;
+  dataString += ",";
+  dataString += millis();
+  dataString += ",";
+  dataString += event1;
+  dataString += ",";
+  dataString += event2;
+  
+  return dataString;
 }
 
 //create string that is later saved to uSD -------------------------------------
@@ -1174,7 +1194,7 @@ uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync)
     uint32_t setseconds, setfrac15;
     fracTime15(newtime, &setseconds, &setfrac15);
   
-    //Set the RTC and time ~0.939 ms
+    //Set the RTC and time ~0.960 ms
     if(update_time) rtc_set_secs_and_frac(setseconds,setfrac15); //set time and adjust for transmit delay, frac will only use lower 15bits
     
     //read back time from adjusted RTC (for debugging)
@@ -1268,24 +1288,6 @@ double median3(double a, double b, double c){
     return b;                            // c b a
 }
 
-//Create misc data String ------------------------------------------------------
-String createMISCDataString(String identifier, String event1,String event2,String dataString){
-  time_t unixtime = Teensy3Clock.get();
-
-  if(dataString != 0) dataString += "\n"; //if datastring is not empty, add newline
-  dataString += identifier;
-  dataString += ",";
-  dataString += unixtime;
-  dataString += ",";
-  dataString += millis();
-  dataString += ",";
-  dataString += event1;
-  dataString += ",";
-  dataString += event2;
-  
-  return dataString;
-}
-
 //create verbose human readable time String textYYYY-MM-DD HH:MM:SS-mss.uss ----
 String vhrTime(String text,double time){
   char timeinfo[28];
@@ -1301,37 +1303,4 @@ String vhrTime(String text,double time){
   return text;
 }
 
-// void test(){
-//   if(globalRFIDtoggle == 1){ //switch all readers "simultaniously"
-//     globalRFIDtoggle = 0; //toggle the toggle
-//     for(uint8_t r = 0;r < arp;r++){
-//       switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
-      
-//       uint8_t tag_status = fetchtag(RFIDreader[r][0],1); //fetch data reader1 collected during on-time saved in variable: tag
-//       for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
-      
-//       //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-//       uint8_t tag_switch = compareTags(currenttag1[r],lasttag1[r]);
-//       char reader[4] = {'R',RFIDreaderNames[r],'1'};
-//       RFIDdataString = createRFIDDataString(currenttag1[r], lasttag1[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
-//       for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) lasttag1[r][i] = currenttag1[r][i]; //copy currenttag to lasttag
-//     }
-//   }
-//   else{
-//     globalRFIDtoggle = 1; //toggle the toggle
-//     for(uint8_t r = 0;r < arp;r++){ //switch all readers "simultaniously"
-//       switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
-      
-//       uint8_t tag_status = fetchtag(RFIDreader[r][1],1); //fetch data reader2 collected during on-time saved in variable: tag
-//       for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
-      
-//       //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-//       uint8_t tag_switch = compareTags(currenttag2[r],lasttag2[r]);
-//       char reader[4] = {'R',RFIDreaderNames[r],'2'};
-//       RFIDdataString = createRFIDDataString(currenttag2[r], lasttag2[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
-//       for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) lasttag2[r][i] = currenttag2[r][i]; //copy currenttag to lasttag
-//     }
-//   }
-// }
-  
-  
+
