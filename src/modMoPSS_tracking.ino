@@ -128,7 +128,7 @@ FsFile dataFileBackup;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,reset,SCL,SDA
 uint8_t displayon = 1;       //flag to en/disable display
 elapsedMillis displaytime;   //time since last display update
-uint8_t page = 0;            //currently displayed page
+int16_t page = 0;            //currently displayed page
 int16_t maxpages;            //total number of pages
 
 //RFID
@@ -206,7 +206,7 @@ void setup(){
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-  maxpages = -1 + arp; //maximum number of pages + NTP?
+  maxpages = -1 + arp + 1; //maximum number of pages: arp + NTP
   
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time); //set RTC to time of upload from PC
@@ -373,7 +373,7 @@ void setup(){
   dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
   dataFileBackup = SDb.open("RFIDLOG_BACKUP.TXT", FILE_WRITE);
   
-  starttime = now(); //get experiment start time
+  starttime = getTeensy3Time(); //get experiment start time
   
   //write current version to SD and some other startup/system related information
   dataFile.println("");
@@ -508,9 +508,6 @@ void loop(){
   String MISCdataString = "";   //holds info of time sync events (and possibly other events)
   
   uint8_t button = getNBButton();
-  if(button == 1)
-  if(button == 2)
-  if(button == 3)
   
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
@@ -568,6 +565,7 @@ void loop(){
   //----------------------------------------------------------------------------
   //update RTC -----------------------------------------------------------------
   //----------------------------------------------------------------------------
+  uint8_t NTPstate;
   if((globalRFIDtime < 25) && //only sync if last RFID sync was 25ms ago so we are not blocking the switching
     (((((Teensy3Clock.get() % syncinterval) == 0) && (NTPsynctime > 2000)) || //sync at full x minutes/seconds but last sync must be at least 2 seconds ago
     (NTPsynctime > 1000 * (syncinterval + 30))) || //or if we miss the exact second for syncing, sync after x time has elapsed
@@ -577,7 +575,6 @@ void loop(){
     char timeinfo[38]; //for verbose NTP server responses
     
     //perform NTP sync - if first sync after failed, don't add to median array
-    uint8_t NTPstate;
     if(NTP_sync_failed == 0){ //if it didn't fail previously, do "normal" sync
       NTPstate = NTPsync(1,1,1,1);
     }
@@ -595,7 +592,7 @@ void loop(){
       MISCdataString = createMISCDataString("NTP",vhrTime("srv send: ",NTP_timestamps[2]),"",MISCdataString);
       MISCdataString = createMISCDataString("NTP",vhrTime("loc rec.: ",NTP_timestamps[3]),"",MISCdataString);
       MISCdataString = createMISCDataString("NTP",vhrTime("loc adj.: ",NTP_timestamps[4]),"",MISCdataString);
-
+      
       MISCdataString = createMISCDataString("NTP","RTC diff from NTP ms",RTC_drift_ms,MISCdataString);
       MISCdataString = createMISCDataString("NTP","server response ms",server_res_ms,MISCdataString);
       if(median_ok){  //only log ppm drift if we have collected a full arrays worth of drift data
@@ -631,10 +628,10 @@ void loop(){
   //----------------------------------------------------------------------------
   if((globalRFIDtime < 50) && (displaytime >= 1000)){ //once every second, and only if we still have 50ms to go before next sync
     displaytime = 0;
-    uint8_t button = getNBButton();
+    //uint8_t button = getNBButton();
     
     //switch display on/off if button pressed
-    if(button ==  2){
+    if(button == 2){
       displayon = !displayon;
       if(!displayon){
         oled.clearBuffer();   //clear display
@@ -662,36 +659,58 @@ void loop(){
       OLEDprint(5,17,0,0,"NEXT");
       OLEDprint(5,9,0,0,"OFF");
       
+      Serial.print("page");
+      Serial.println(page);
+      
       //--- RFID pages display last read tag
-      uint8_t r;
-      if(page == 0) r = 0;
-      if(page == 1) r = 1;
-      if(page == 2) r = 2;
+      if(page <= arp - 1){
+        uint8_t r = page;
+        
+        char reader[3] = {'R',RFIDreaderNames[r]}; //create string for the reader name
+        //reader 1
+        String shorttagID = getID(latestreadtag1[r]); //get tag in string format
+        shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1); //use last 7 digits of RFID tag
+        float tagTemp = getTemperatureC(latestreadtag1[r]); //get temperature in °C format
+        String hrtag;
+        hrtag = String(reader) + "1: " + shorttagID + " | " + String(tagTemp,1) + "C";  //make a nice string for printing
+        String hrtagtime = String(reader) + "1: " + nicetime(latest_tagtime1[r]); //make a nice string for printing
+        
+        OLEDprint(1,0,0,0,hrtag);
+        OLEDprint(2,0,0,0,hrtagtime);
+        //reader 2
+        shorttagID = getID(latestreadtag2[r]);
+        shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1);
+        tagTemp = getTemperatureC(latestreadtag2[r]);
+        hrtag = String(reader) + "2: " + shorttagID + " | " + String(tagTemp,1) + "C";
+        hrtagtime = String(reader) + "2: "  + nicetime(latest_tagtime2[r]);
+        
+        OLEDprint(3,0,0,0,hrtag);
+        OLEDprint(4,0,0,0,hrtagtime);
+      }
       
-      char reader[3] = {'R',RFIDreaderNames[r]}; //create string for the reader name
-      //reader 1
-      String shorttagID = getID(latestreadtag1[r]); //get tag in string format
-      shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1); //use last 7 digits of RFID tag
-      float tagTemp = getTemperatureC(latestreadtag1[r]); //get temperature in °C format
-      String hrtag;
-      hrtag = String(reader) + "1: " + shorttagID + " | " + String(tagTemp,1) + "C";  //make a nice string for printing
-      String hrtagtime = String(reader) + "1: " + nicetime(latest_tagtime1[r]); //make a nice string for printing
-      
-      OLEDprint(1,0,0,0,hrtag);
-      OLEDprint(2,0,0,0,hrtagtime);
-      //reader 2
-      shorttagID = getID(latestreadtag2[r]);
-      shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1);
-      tagTemp = getTemperatureC(latestreadtag2[r]);
-      hrtag = String(reader) + "2: " + shorttagID + " | " + String(tagTemp,1) + "C";
-      hrtagtime = String(reader) + "2: "  + nicetime(latest_tagtime2[r]);
-      
-      OLEDprint(3,0,0,0,hrtag);
-      OLEDprint(4,0,0,0,hrtagtime);
+      //--- NTP page
+      if(page == arp){
+        OLEDprint(1,0,0,0,"last o. sync");
+        OLEDprint(1,13,0,0,nicetime(floor(NTP_timestamps[0])));
+        
+        OLEDprint(2,0,0,0,"last drift ms:");
+        if(NTPstate == 0) OLEDprintFraction(2,15,0,0,RTC_drift_ms,2);
+        else if(NTPstate != 0) OLEDprintFraction(2,15,0,0,(NTP_timestamps[4] - NTP_timestamps[3]) * 1000,2);
+        
+        OLEDprint(3,0,0,0,"drift ppm:");
+        if(median_ok) OLEDprintFraction(3,11,0,0,RTC_drift_median_mean * 1000000,2);
+        else if(!median_ok) OLEDprint(3,11,0,0,"low data");
+        
+        OLEDprint(4,0,0,0,"sync status:");
+        if(NTPstate == 0) OLEDprint(4,13,0,0,"online");
+        else if(NTPstate != 0 && median_ok) OLEDprint(4,13,0,0,"offline");
+        else if(NTPstate != 0 && !median_ok) OLEDprint(4,13,0,0,"no sync");
+      }
       
       //--- update display ---
       oled.sendBuffer();
     }
+    button = 0; //clear button buffer
   }
 
   //----------------------------------------------------------------------------
