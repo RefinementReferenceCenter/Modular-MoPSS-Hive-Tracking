@@ -166,7 +166,7 @@ const uint8_t arp = 3;
 const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','C','?','?','?','?','?','?','?'}; //Single character only!
 
 //Interval at which the RTC should be updated, either via NTP or offline if enough data is available
-const uint16_t syncinterval = 1; //in seconds
+const uint16_t syncinterval = 600; //in seconds
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
 const uint8_t is_testing = 1;
