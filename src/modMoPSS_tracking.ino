@@ -57,7 +57,7 @@ const char SOFTWARE_REV[] = "v1.0.0";
 //Ethernet & NTP
 using namespace qindesign::network;
 
-constexpr uint32_t DHCPTimeout = 15'000;        //15 seconds timeout to get DHCP IP address
+constexpr uint32_t DHCPTimeout = 15'000;       //15 seconds timeout to get DHCP IP address
 constexpr uint16_t NTPPort = 123;              //port for ntp requests
 constexpr uint32_t EpochDiff = 2'208'988'800;  //01-Jan-1900 00:00:00 -> 01-Jan-1970 00:00:00
 constexpr uint32_t EBreakTime = 2'085'978'496; //Epoch -> 07-Feb-2036 06:28:16
@@ -520,8 +520,8 @@ void loop(){
     globalRFIDtime = 0;  //reset time
     
     if(globalRFIDtoggle == 1){
+      globalRFIDtoggle = 0; //toggle the toggle
       for(uint8_t r = 0;r < arp;r++){
-        globalRFIDtoggle = 0; //toggle the toggle
         switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
         
         uint8_t tag_status = fetchtag(RFIDreader[r][0],1); //fetch data reader1 collected during on-time saved in variable: tag
@@ -541,8 +541,8 @@ void loop(){
       }
     }
     else{
+      globalRFIDtoggle = 1; //toggle the toggle
       for(uint8_t r = 0;r < arp;r++){
-        globalRFIDtoggle = 1; //toggle the toggle
         switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
         
         uint8_t tag_status = fetchtag(RFIDreader[r][1],1); //fetch data reader2 collected during on-time saved in variable: tag
@@ -659,9 +659,6 @@ void loop(){
       OLEDprint(5,17,0,0,"NEXT");
       OLEDprint(5,9,0,0,"OFF");
       
-      Serial.print("page");
-      Serial.println(page);
-      
       //--- RFID pages display last read tag
       if(page <= arp - 1){
         uint8_t r = page;
@@ -738,8 +735,7 @@ void loop(){
 		dataFile.flush();
 		dataFileBackup.println(MISCdataString);
 		dataFileBackup.flush();
-    Serial.println(MISCdataString);
-    Serial.println("");
+    if(is_testing == 1) Serial.println(MISCdataString);
 	}
 
 } //end of loop
