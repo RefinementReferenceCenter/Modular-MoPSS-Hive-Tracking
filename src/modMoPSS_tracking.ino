@@ -49,7 +49,7 @@ D19 - SCL
 #include <SdFat.h>           //Access SD Cards
 #include <U8g2lib.h>         //for SSD1306 OLED Display
 #include <QNEthernet.h>      //for ethernet
-
+#include <ModMoPSS_logo.h>
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
@@ -187,13 +187,70 @@ void setup(){
   Serial.begin(115200);
   if(is_testing == 1){
     //while(!Serial); //wait for serial connection
+    delay(1000);
     Serial.println("alive");
   }
   
   //start I2C
   Wire.setClock(400 * 1000U); //100k, 400k, 1M are allowed //might be altered by oled to 400k
   Wire.begin();
-  
+  if (checkModule(oledDisplay>>1))
+     {
+      Serial.printf("OLED at address %#2x was not found! \n Halting",oledDisplay);
+      while (1)
+        {
+          digitalWrite(errorLED,LOW);
+          digitalWrite(statusLED,HIGH);
+          delay(500);
+          digitalWrite(errorLED,HIGH);
+          digitalWrite(statusLED,LOW);
+          delay(500);
+        }
+     }
+//Check if contact with display is possible
+oled.beginSimple();
+uint8_t offCheck,onCheck;
+  //Check if display is present
+  Wire.beginTransmission(oledDisplay);
+  Wire.write(0x00);
+  Wire.write(0xAE);
+  Wire.endTransmission();
+  Serial.println("alive?");
+
+     Wire.requestFrom(oledDisplay>>1, 1);    // Request 6 bytes from slave device number two
+while(!Wire.available()) {}
+offCheck = Wire.read();
+while(Wire.available()) {}
+oled.begin();
+  Wire.beginTransmission(oledDisplay);
+  Wire.write(0x00);
+  Wire.write(0xAF);
+  Wire.endTransmission();
+  Serial.println("alive?");
+
+     Wire.requestFrom(oledDisplay>>1, 1);    // Request 6 bytes from slave device number two
+while(!Wire.available()) {}
+onCheck = Wire.read();
+Serial.println(offCheck);
+Serial.println(offCheck & 64);
+Serial.println(onCheck);
+Serial.println(onCheck & 64);
+if(((onCheck & 64)==0)&((offCheck & 64) ==64))
+{
+  Serial.println("We Good");
+}
+//----- Display --------------------------------------------------------------
+  oled.setI2CAddress(oledDisplay);
+  oled.begin();
+  oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
+  OLEDprint(4,0,0,0,"MoPSS Modular");
+    OLEDprint(5,0,0,0,"Starting....");
+  oled.drawXBM(0,0, ModMopSS_logo_width, ModMopSS_logo_height, ModMopSS_logo_bits);
+  oled.updateDisplay();
+  delay(1000);
+  oled.clearDisplay();
+  oled.updateDisplay();
+    
   //----- Buttons & Fans & LEDs ------------------------------------------------
   pinMode(buttons,INPUT);
   pinMode(statusLED,OUTPUT);
@@ -203,10 +260,10 @@ void setup(){
   //----- Sensors --------------------------------------------------------------
   
   //----- Display --------------------------------------------------------------
-  oled.setI2CAddress(oledDisplay);
-  oled.begin();
-  oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-  maxpages = -1 + arp + 1; //maximum number of pages: arp + NTP
+  // oled.setI2CAddress(oledDisplay);
+  // oled.begin();
+  // oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
+  // maxpages = -1 + arp + 1; //maximum number of pages: arp + NTP
   
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time); //set RTC to time of upload from PC
@@ -1317,5 +1374,80 @@ String vhrTime(String text,double time){
   
   return text;
 }
+bool checkModule(uint8_t address)
+{
+  Wire.beginTransmission(address);
+  uint8_t i2cErr =Wire.endTransmission();
+  Serial.printf("Add %x val %d\n",address,i2cErr);
+  return i2cErr;
+}
 
 
+bool startChecks()
+{
+  uint8_t err;
+  uint8_t startOK=0;
+OLEDprint(0,0,1,1,">>>  Setup Checks  <<<");
+//   OLEDprint(1,0,0,1,"RFID 1:"); //see if the cards are present and can be initialized
+//   err=checkModule(reader1);
+//   if (err)
+//   {
+//   OLEDprint(1,8,0,1,"X");
+//   startOK=1;
+//   }
+//   else
+//   {
+// OLEDprint(1,8,0,1,"OK");
+//   }
+
+// OLEDprint(2,0,0,1,"RFID 2:"); //see if the cards are present and can be initialized
+// err=checkModule(reader2);
+//   if (err)
+//   {
+//   OLEDprint(2,8,0,1,"X");
+//   startOK=1;
+//   }
+//   else
+//   {
+// OLEDprint(2,8,0,1,"OK");
+//   }   
+  
+
+//   OLEDprint(3,0,0,1,"Door:"); //see if the cards are present and can be initialized
+// err=checkModule(doorMod1);
+//   if (err)
+//   {
+//   OLEDprint(3,8,0,1,"X");
+//   startOK=1;
+//   }
+//   else
+//   {
+// OLEDprint(3,8,0,1,"OK");
+//   }   
+
+
+//Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
+  OLEDprint(4,0,0,1,"SD EXternal:"); //see if the cards are present and can be initialized
+  OLEDprint(5,0,0,1,"SD INternal:");
+  
+  //SD card external (main, for data collection)
+  if(!SD.begin(SDcs)){
+    OLEDprint(4,13,0,1,"FAIL!");
+    startOK=1;
+  }
+  else{
+    Serial.println("External SD card initialized successfully!");
+    OLEDprint(4,13,0,1,"OK!");
+  }
+  //SD card internal (Backup)
+  if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
+    OLEDprint(5,13,0,1,"FAIL!");
+    startOK=1;
+  }
+  else{
+    Serial.println("Internal SD card initialized successfully!");
+    OLEDprint(2,13,0,1,"OK!");
+  }
+
+  return startOK;
+}
