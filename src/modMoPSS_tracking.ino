@@ -50,6 +50,8 @@ D19 - SCL
 #include <U8g2lib.h>         //for SSD1306 OLED Display
 #include <QNEthernet.h>      //for ethernet
 #include <ModMoPSS_logo.h>
+
+//#define USE_ETHERNET TRUE
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
@@ -158,7 +160,7 @@ uint32_t rtccheck_time;    //time the rtc was checked last
 //##############################################################################
 
 //active reader pairs == amount of RFID modules in use
-const uint8_t arp = 3;
+const uint8_t arp = 2;
 
 //Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
 //output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
@@ -268,6 +270,7 @@ if(((onCheck & 64)==0)&((offCheck & 64) ==64))
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time); //set RTC to time of upload from PC
   
+  #ifdef USE_ETHERNET
   //----- Ethernet -------------------------------------------------------------
   //fetch mac address
   Serial.println("Fetching mac address...");
@@ -359,6 +362,7 @@ if(((onCheck & 64)==0)&((offCheck & 64) ==64))
   ntpbuf[14] = 90;
   ntpbuf[15] = 90;
   
+  #endif
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
   for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
@@ -371,18 +375,35 @@ if(((onCheck & 64)==0)&((offCheck & 64) ==64))
     char reader2[4] = {'R',RFIDreaderNames[r],'2'};
     OLEDprint(2,0,0,0,reader2);
     OLEDprint(2,3,0,1,":");
-    
+    OLEDprint(5,0,0,1,"CONFIRM");
     uint8_t RFIDmodulestate = 0;
     
     while(RFIDmodulestate == 0){
-      reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
+      // while(1)
+      // {
+      
+      reader1freq[r] = fetchResFreqCont(RFIDreader[r][0]);
       OLEDprintFraction(1,5,0,0,(float)reader1freq[r]/1000,3);
-      OLEDprint(1,12,0,1," kHz");
-      
-      reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
+      OLEDprint(1,12,0,0," kHz");
+      reader2freq[r] = fetchResFreqCont(RFIDreader[r][1]);
       OLEDprintFraction(2,5,0,0,(float)reader2freq[r]/1000,3);
-      OLEDprint(2,12,0,1," kHz");
+      OLEDprint(2,12,0,0," kHz");
+      if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
+        OLEDprint(4,0,0,1,"Antenna detuned!");
+      else
+        OLEDprint(4,0,0,1,"                 ");
       
+      uint8_t buttonpress = getNBButton();
+      if (buttonpress==1)
+      {
+        RFIDmodulestate = 1;
+        setReaderMode(RFIDreader[r][0],2);
+        setReaderMode(RFIDreader[r][1],2);
+      }
+      // }
+
+/*
+    
       if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000)){
         OLEDprint(4,0,0,0,"Antenna detuned!");
         OLEDprint(5,0,0,0,"CONFIRM");
@@ -394,9 +415,10 @@ if(((onCheck & 64)==0)&((offCheck & 64) ==64))
         OLEDprint(5,0,0,1,"-Done");
         delay(1000);  //to give time to actually read the display
         RFIDmodulestate = 1;
+*/
       }
     }
-  }
+  
   
   //----- Setup SD Card --------------------------------------------------------
   //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
@@ -951,6 +973,32 @@ uint32_t fetchResFreq(uint8_t reader){
   return resfreq;
 }
 
+//Non blocking frew measurements for tuning mode.
+uint32_t fetchResFreqCont(uint8_t reader){
+  setReaderMode(reader,4); //set to frequency measure mode and perform measurement
+  //delay(1500);             //frequency measurement takes about >=1.1 seconds
+
+  //fetch measured frequency
+  uint32_t resfreq = 0;
+  uint8_t rcv[4];
+  Wire.requestFrom(reader,4,1); //request frequency
+  uint8_t n = 0;
+  while(Wire.available()){
+    rcv[n] = Wire.read();
+    n++;
+  }
+  //assemble from array to 32bit variable
+  resfreq |= (rcv[3] << 24);
+  resfreq |= (rcv[2] << 16);
+  resfreq |= (rcv[1] <<  8);
+  resfreq |= (rcv[0] <<  0);
+
+  //leave measure mode
+  //setReaderMode(reader,2);  //set to tag-transmitting mode
+
+  return resfreq;
+}
+
 //fetch tag data from reader ---------------------------------------------------
 uint8_t fetchtag(byte reader, byte busrelease){
   Wire.requestFrom(reader,7,busrelease); //address, quantity ~574uS, bus release
@@ -1124,10 +1172,16 @@ uint8_t getButton(){
 //returns which button is currently pressed (non-blocking) ---------------------
 uint8_t getNBButton(){
   int16_t input = analogRead(buttons);
+  static uint8_t last=0;
+  static uint8_t now=0;
+  if(input <= 150) now= 1;
+  if(input > 150 && input <= 450)now=2;
+  if(input > 450 && input <= 850) now= 3;
+  if (input > 850) now =0;
   
-  if(input <= 150) return 1;
-  if(input > 150 && input <= 450) return 2;
-  if(input > 450 && input <= 850) return 3;
+  if(last==now) return(0);
+  last=now;
+  return(now);
 }
 
 //read fractional seconds from RTC 1/32768 (2^15) sec. -------------------------
