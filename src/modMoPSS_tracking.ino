@@ -111,7 +111,7 @@ const uint8_t oledDisplay = 0x78; //I2C address oled display
 
 //Buttons
 const int buttons = A13;    //~1022 not pressed, ~1 left, ~323 middle, ~711 right
-
+uint8_t getButton(uint32_t timeout_ms=0);
 //LEDs
 const int errorLED = 32;
 const int statusLED = 31;
@@ -189,7 +189,7 @@ void setup(){
   Serial.begin(115200);
   if(is_testing == 1){
     //while(!Serial); //wait for serial connection
-    delay(1000);
+    //delay(1000);
     Serial.println("alive");
   }
   
@@ -210,37 +210,37 @@ void setup(){
         }
      }
 //Check if contact with display is possible
-oled.beginSimple();
-uint8_t offCheck,onCheck;
-  //Check if display is present
-  Wire.beginTransmission(oledDisplay);
-  Wire.write(0x00);
-  Wire.write(0xAE);
-  Wire.endTransmission();
-  Serial.println("alive?");
+// oled.beginSimple();
+// uint8_t offCheck,onCheck;
+//   //Check if display is present
+//   Wire.beginTransmission(oledDisplay);
+//   Wire.write(0x00);
+//   Wire.write(0xAE);
+//   Wire.endTransmission();
+//   Serial.println("alive?");
 
-     Wire.requestFrom(oledDisplay>>1, 1);    // Request 6 bytes from slave device number two
-while(!Wire.available()) {}
-offCheck = Wire.read();
-while(Wire.available()) {}
-oled.begin();
-  Wire.beginTransmission(oledDisplay);
-  Wire.write(0x00);
-  Wire.write(0xAF);
-  Wire.endTransmission();
-  Serial.println("alive?");
+//      Wire.requestFrom(oledDisplay>>1, 1);    // Request 6 bytes from slave device number two
+// while(!Wire.available()) {}
+// offCheck = Wire.read();
+// while(Wire.available()) {}
+// oled.begin();
+//   Wire.beginTransmission(oledDisplay);
+//   Wire.write(0x00);
+//   Wire.write(0xAF);
+//   Wire.endTransmission();
+//   Serial.println("alive?");
 
-     Wire.requestFrom(oledDisplay>>1, 1);    // Request 6 bytes from slave device number two
-while(!Wire.available()) {}
-onCheck = Wire.read();
-Serial.println(offCheck);
-Serial.println(offCheck & 64);
-Serial.println(onCheck);
-Serial.println(onCheck & 64);
-if(((onCheck & 64)==0)&((offCheck & 64) ==64))
-{
-  Serial.println("We Good");
-}
+//      Wire.requestFrom(oledDisplay>>1, 1);    // Request 6 bytes from slave device number two
+// while(!Wire.available()) {}
+// onCheck = Wire.read();
+// Serial.println(offCheck);
+// Serial.println(offCheck & 64);
+// Serial.println(onCheck);
+// Serial.println(onCheck & 64);
+// if(((onCheck & 64)==0)&((offCheck & 64) ==64))
+// {
+//   Serial.println("We Good");
+// }
 //----- Display --------------------------------------------------------------
   oled.setI2CAddress(oledDisplay);
   oled.begin();
@@ -376,30 +376,91 @@ if(((onCheck & 64)==0)&((offCheck & 64) ==64))
     OLEDprint(2,0,0,0,reader2);
     OLEDprint(2,3,0,1,":");
     OLEDprint(5,0,0,1,"CONFIRM");
+    OLEDprint(5,14,0,1,"TUNE?");
     uint8_t RFIDmodulestate = 0;
     
+    reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
+    OLEDprintFraction(1,5,0,0,(float)reader1freq[r]/1000,3);
+    OLEDprint(1,12,0,1," kHz");
+    reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
+    OLEDprintFraction(2,5,0,0,(float)reader2freq[r]/1000,3);
+    OLEDprint(2,12,0,1," kHz");
+    if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
+      OLEDprint(4,0,0,1,"Antenna detuned!");
+    elapsedMillis waited;
+    waited=0;
+    uint8_t buttonpress;
+    RFIDmodulestate=1;
+    while (waited<3000)
+    {
+
+      oled.drawBox(0,32, 128*waited/3000,8);
+      oled.sendBuffer();
+       buttonpress = getNBButton();
+
+       if (buttonpress ==1) break;
+       if (buttonpress ==3) 
+       {
+        RFIDmodulestate=0;
+        break;
+       }
+       Serial.println(waited);
+    }
+    bool activeUnit=0;
     while(RFIDmodulestate == 0){
       // while(1)
       // {
+      oled.clearBuffer();
+      OLEDprint(0,0,1,0,">>> RFID Setup <<<");
       
-      reader1freq[r] = fetchResFreqCont(RFIDreader[r][0]);
+      char reader1[4] = {'R',RFIDreaderNames[r],activeUnit?'2':'1' };
+      OLEDprint(1,0,0,0,reader1);
+      OLEDprint(1,3,0,0,":");
+      OLEDprint(5,0,0,0,"CONFIRM");
+      OLEDprint(5,14,0,0,"SWITCH");
+      reader1freq[r] = fetchResFreqCont(RFIDreader[r][activeUnit]);
       OLEDprintFraction(1,5,0,0,(float)reader1freq[r]/1000,3);
       OLEDprint(1,12,0,0," kHz");
-      reader2freq[r] = fetchResFreqCont(RFIDreader[r][1]);
-      OLEDprintFraction(2,5,0,0,(float)reader2freq[r]/1000,3);
-      OLEDprint(2,12,0,0," kHz");
+      
+      int16_t error=(reader1freq[r] - 134200);
+      error=error<-2000?-2000:error;
+      error=error>2000?2000:error;
+      
+      int16_t pos =63+63*error/2000-3;
+      oled.setFont(u8g2_font_unifont_t_symbols);
+      oled.drawGlyph(pos,40,0x25b2);
+      Serial.println(pos);
+      Serial.println(error);
+      
+      for (int i=0;i<=4;i++)
+      {
+        oled.drawVLine(i*127/4,24,7);
+        oled.drawVLine((i+0.5)*127/4,24,4);
+      }
+      oled.drawVLine(127/2,24,12);
+      
+      oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
       if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
         OLEDprint(4,0,0,1,"Antenna detuned!");
-      else
-        OLEDprint(4,0,0,1,"                 ");
+        
       
-      uint8_t buttonpress = getNBButton();
+      buttonpress = getNBButton();
       if (buttonpress==1)
       {
         RFIDmodulestate = 1;
         setReaderMode(RFIDreader[r][0],2);
         setReaderMode(RFIDreader[r][1],2);
       }
+      if (buttonpress==3)
+      {
+        
+        setReaderMode(RFIDreader[r][activeUnit],2);
+        activeUnit=!activeUnit;
+        Serial.println(activeUnit);
+        setReaderMode(RFIDreader[r][activeUnit],4);
+      }
+      oled.sendBuffer();
+      delay(50);
       // }
 
 /*
@@ -1147,6 +1208,11 @@ void criticalerror(){
     delay(200);
     digitalWrite(errorLED,LOW);
     delay(200);
+    if (getNBButton())  
+    {
+    OLEDprint(5,0,0,1,"RESTARTING!");
+    SCB_AIRCR = 0x05FA0004;
+    }
   }
 }
 
@@ -1158,15 +1224,18 @@ void confirm(){
 }
 
 //waits and returns which button (1,2,3) was pressed ---------------------------
-uint8_t getButton(){
+uint8_t getButton(uint32_t timeout_ms){
   uint16_t input = 1023;
-  while(input > 850){
+  elapsedMillis ellapsed;
+  bool wait = timeout_ms==0;
+  while((input > 850) && (wait!= (ellapsed<timeout_ms))){
     input = analogRead(buttons);
     delay(50);
   }
   if(input <= 150) return 1;
   if(input > 150 && input <= 450) return 2;
   if(input > 450 && input <= 850) return 3;
+  if (input > 850) return(0);
 }
 
 //returns which button is currently pressed (non-blocking) ---------------------
