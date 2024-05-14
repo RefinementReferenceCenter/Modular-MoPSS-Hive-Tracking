@@ -44,12 +44,7 @@ D19 - SCL
  _______/                        \_______
 
 *///----------------------------------------------------------------------------
-#include <TimeLib.h>         //Manage Real Time CLock
-#include <i2c_driver_wire.h> //I2C communication !!! libraries using Wire.h must be adjusted to use i2c_driver_wire.h instead !!!
-#include <SdFat.h>           //Access SD Cards
-#include <U8g2lib.h>         //for SSD1306 OLED Display
-#include <QNEthernet.h>      //for ethernet
-#include <ModMoPSS_logo.h>
+#include "modMoPSS_tracking.h"
 
 //#define USE_ETHERNET TRUE
 #define PERFORM_CHECKS TRUE
