@@ -10,6 +10,7 @@
 #include <U8g2lib.h>         //for SSD1306 OLED Display
 #include <QNEthernet.h>      //for ethernet
 #include <ModMoPSS_logo.h>
+#include <ansi.h>
 
 bool startChecks();
 bool checkModule(uint8_t address);
@@ -28,6 +29,7 @@ void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, Strin
 void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, int32_t number);
 void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, float number, uint8_t decimals);
 void criticalerror();
+void criticalerrorMessage(char *message,char *message2);
 
 
 void enableReader(uint8_t reader);

@@ -47,7 +47,8 @@ D19 - SCL
 #include "modMoPSS_tracking.h"
 
 //#define USE_ETHERNET TRUE
-#define PERFORM_CHECKS TRUE
+// #define PERFORM_CHECKS TRUE
+//3#define SERIAL_TUNING TRUE
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
@@ -85,6 +86,9 @@ uint8_t force_sync = 0;      //force NTP sync flag
 double burst_array[3];       //stores RTC drift values of multiple syncs to get more accurate drift values
 double NTP_timestamps[5];    //stores the timestamps of the NTP packet, local send/rec, server send/rec and adjusted time
 const double clock_set_offset = 0.00096084; //time it takes the RTC to be set (RTC is briefly stopped while being set)
+
+
+ANSI ansi(&Serial);
 
 
 //I2C addresses
@@ -188,7 +192,7 @@ void setup(){
     //delay(1000);
     Serial.println("alive");
   }
-  
+  ansi.reset();
   //start I2C
   Wire.setClock(400 * 1000U); //100k, 400k, 1M are allowed //might be altered by oled to 400k
   Wire.begin();
@@ -388,6 +392,10 @@ void setup(){
     reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
     OLEDprintFraction(2,5,0,0,(float)reader2freq[r]/1000,3);
     OLEDprint(2,12,0,1," kHz");
+
+    if (reader1freq[r]==0) criticalerrorMessage("CHECK ANTENNAS",reader1);
+    if (reader2freq[r]==0) criticalerrorMessage("CHECK ANTENNAS", reader2);
+
     if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
       OLEDprint(4,0,0,1,"Antenna detuned!");
     elapsedMillis waited;
@@ -398,16 +406,21 @@ void setup(){
     {
 
       oled.drawBox(0,32, 128*waited/3000,8);
+      #ifdef SERIAL_TUNING
+      ansi.gotoXY(20*waited/3000,4);
+      ansi.print("▓");
+      #endif 
+      ansi.gotoXY(20,3);
+      ansi.print("│");
       oled.sendBuffer();
        buttonpress = getNBButton();
-
+        
        if (buttonpress ==1) break;
        if (buttonpress ==3) 
        {
         RFIDmodulestate=0;
         break;
        }
-       Serial.println(waited);
     }
     bool activeUnit=0;
     while(RFIDmodulestate == 0){
@@ -432,16 +445,27 @@ void setup(){
       int16_t pos =63+63*error/2000-3;
       oled.setFont(u8g2_font_unifont_t_symbols);
       oled.drawGlyph(pos,40,0x25b2);
-      Serial.println(pos);
-      Serial.println(error);
-      
       for (int i=0;i<=4;i++)
       {
         oled.drawVLine(i*127/4,24,7);
         oled.drawVLine((i+0.5)*127/4,24,4);
       }
       oled.drawVLine(127/2,24,12);
-      
+      #ifdef SERIAL_TUNING
+      ansi.print("\033[(B");
+      ansi.gotoXY(0,3);
+      ansi.print("│");
+      ansi.gotoXY(5,3);
+      ansi.print("╵");
+      ansi.gotoXY(15,3);
+      ansi.print("╵");
+      ansi.gotoXY(20,3);
+      ansi.print("│");
+      ansi.gotoXY(10,3);
+      ansi.print("┃");
+      ansi.gotoXY(10+10*error/2000,4);
+      ansi.print("╽");
+      #endif
       oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
       if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
         OLEDprint(4,0,0,1,"Antenna detuned!");
@@ -464,53 +488,10 @@ void setup(){
       }
       oled.sendBuffer();
       delay(50);
-      // }
-
-/*
-    
-      if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000)){
-        OLEDprint(4,0,0,0,"Antenna detuned!");
-        OLEDprint(5,0,0,0,"CONFIRM");
-        OLEDprint(5,14,0,1,"REPEAT");
-        uint8_t buttonpress = getButton();
-        if(buttonpress == 1) RFIDmodulestate = 1;
-      }
-      else{
-        OLEDprint(5,0,0,1,"-Done");
-        delay(1000);  //to give time to actually read the display
-        RFIDmodulestate = 1;
-*/
       }
     }
   
   
-  //----- Setup SD Card --------------------------------------------------------
-  //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
-  OLEDprint(0,0,1,0,">>>  uSD  Setup  <<<");
-  OLEDprint(1,0,0,0,"SD EXternal:"); //see if the cards are present and can be initialized
-  OLEDprint(2,0,0,1,"SD INternal:");
-  
-  //SD card external (main, for data collection)
-  if(!SD.begin(SDcs)){
-    OLEDprint(1,13,0,0,"FAIL!");
-    OLEDprint(5,0,0,1,"PROGRAM STOPPED");
-    criticalerror();
-  }
-  else{
-    Serial.println("External SD card initialized successfully!");
-    OLEDprint(1,13,0,1,"OK!");
-  }
-  //SD card internal (Backup)
-  if(!SDb.begin(SdioConfig(FIFO_SDIO))){ //internal SD Card
-    OLEDprint(2,13,0,0,"FAIL!");
-    OLEDprint(5,0,0,1,"PROGRAM STOPPED");
-    criticalerror();
-  }
-  else{
-    Serial.println("Internal SD card initialized successfully!");
-    OLEDprint(2,13,0,1,"OK!");
-  }
-  delay(1000);
   #endif
   //----- Setup log file, and write initial configuration ----------------------
   dataFile = SD.open("RFIDLOG.TXT", FILE_WRITE); //open file, or create if empty
@@ -651,7 +632,7 @@ void loop(){
   String MISCdataString = "";   //holds info of time sync events (and possibly other events)
   
   uint8_t button = getNBButton();
-  Serial.println(button);
+  
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
   //----------------------------------------------------------------------------
@@ -897,10 +878,18 @@ time_t getTeensy3Time(){
 
 //Helper for printing to OLED Display (text) -----------------------------------
 void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, String text){
-  if(clear) oled.clearBuffer(); //clear screen 
+  if(clear) 
+  {
+    oled.clearBuffer(); //clear screen 
+  }
   oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
   oled.print(text);
   if(update) oled.sendBuffer();
+  #ifdef SERIAL_TUNING
+  if(clear) ansi.clearScreen();
+  ansi.gotoXY(column, row+1);
+  ansi.print(text);
+  #endif
 }
 
 //Helper for printing to OLED Display (number) ---------------------------------
@@ -908,6 +897,11 @@ void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, int32
   if(clear) oled.clearBuffer(); //clear screen  
   oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
   oled.print(number);
+  #ifdef SERIAL_TUNING
+  if(clear) ansi.clearScreen();
+  ansi.gotoXY(column, row+1);
+  ansi.print(number);
+  #endif
   if(update) oled.sendBuffer();
 }
 
@@ -916,6 +910,11 @@ void OLEDprintFraction(uint8_t row, uint8_t column, uint8_t clear, uint8_t updat
   oled.setCursor(column * 6,(row * 10) + 10); //max row 0-5, max col 0-20
   oled.print(number,decimals);
   if(update) oled.sendBuffer();
+  #ifdef SERIAL_TUNING
+    if(clear) ansi.clearScreen();
+    ansi.gotoXY(column, row+1);
+    ansi.print(number,decimals);
+  #endif
 }
 
 
@@ -1060,6 +1059,23 @@ void criticalerror(){
   }
 }
 
+void criticalerrorMessage(char *message,char *message2){
+  OLEDprint(0,0,1,0,">>> CRIT ERROR <<<");
+  OLEDprint(1,0,0,0,message);
+  OLEDprint(2,0,0,1,message2);
+  
+  while(1){
+    digitalWrite(errorLED,HIGH);
+    delay(200);
+    digitalWrite(errorLED,LOW);
+    delay(200);
+    if (getNBButton())  
+    {
+    OLEDprint(5,0,0,1,"RESTARTING!");
+    SCB_AIRCR = 0x05FA0004;
+    }
+  }
+}
 //confirm with any button ------------------------------------------------------
 void confirm(){
   while(analogRead(buttons) > 850){
@@ -1087,11 +1103,22 @@ uint8_t getNBButton(){
   int16_t input = analogRead(buttons);
   static uint8_t last=0;
   static uint8_t now=0;
+  #ifdef SERIAL_TUNING
+        if(Serial.available())
+        {
+        char inp[5];
+        Serial.readBytes(inp,1);
+        ansi.gotoXY(6,10);
+        ansi.print(inp);
+        return (atoi(&inp[0]));
+        }
+#endif
+
   if(input <= 150) now= 1;
   if(input > 150 && input <= 450)now=2;
   if(input > 450 && input <= 850) now= 3;
   if (input > 850) now =0;
-  Serial.printf("L:%d N:%d I:%d",last,now,input);
+  //Serial.printf("L:%d N:%d I:%d",last,now,input);
   if(last==now) return(0);
   last=now;
   return(now);
