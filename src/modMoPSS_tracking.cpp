@@ -131,8 +131,12 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C oled(U8G2_R0,U8X8_PIN_NONE,23,22); //def,res
 uint8_t displayon = 1;       //flag to en/disable display
 elapsedMillis displaytime;   //time since last display update
 int16_t page = 0;            //currently displayed page
-int16_t maxpages;            //total number of pages
-
+// constexpr int16_t maxpages;            //total number of pages
+#ifdef USE_ETHERNET
+  constexpr uint8_t maxpages = -1 + ACTIVE_PAIRS +1; //maximum number of pages: arp + NTP
+#else
+  constexpr uint8_t maxpages = -1 + ACTIVE_PAIRS;
+#endif
 //RFID
 uint8_t globalRFIDtoggle = 0; //flag to switch between antennas of all modules
 elapsedMillis globalRFIDtime; //global timer to switch antennas in pairs
@@ -171,7 +175,7 @@ const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','C','?','?','?','?','?
 const uint16_t syncinterval = 600; //in seconds
 
 //if set to 1, the MoPSS prints what is written to uSD to Serial as well.
-const uint8_t is_testing = 1;
+
 
 //write additional information to SD card
 //debug = 0 includes door movements, RFID tags
@@ -187,10 +191,10 @@ void setup(){
   //----- Serial & I2C ---------------------------------------------------------
   //start Serial communication
   Serial.begin(115200);
-  if(is_testing == 1){
-    //while(!Serial); //wait for serial connection
-    //delay(1000);
-  }
+  // if(is_testing == 1){
+  //   //while(!Serial); //wait for serial connection
+  //   //delay(1000);
+  // }
   ansi.clearScreen();
   ansi.reset();
   //start I2C
@@ -209,6 +213,7 @@ void setup(){
           delay(500);
         }
      }
+
 //Check if contact with display is possible
 // oled.beginSimple();
 // uint8_t offCheck,onCheck;
@@ -245,7 +250,8 @@ void setup(){
   oled.setI2CAddress(oledDisplay);
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-  maxpages = -1 + arp + 1; //maximum number of pages: arp + NTP
+  
+  
   OLEDprint(4,0,0,0,"MoPSS Modular");
     OLEDprint(5,0,0,0,"Starting....");
   oled.drawXBM(0,0, ModMopSS_logo_width, ModMopSS_logo_height, ModMopSS_logo_bits);
@@ -262,11 +268,10 @@ void setup(){
   
   //----- Sensors --------------------------------------------------------------
   
-  //----- Display --------------------------------------------------------------
-  // oled.setI2CAddress(oledDisplay);
-  // oled.begin();
-  // oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
   
+  //------Check For Connections
+  if(startChecks()) criticalerror();
+  delay (500);
   
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time); //set RTC to time of upload from PC
@@ -365,11 +370,10 @@ void setup(){
   
   #endif
 
+
   #ifdef PERFORM_CHECKS
 
-  //------Check For Connections
-  if(startChecks()) criticalerror();
-  delay (500);
+  
   //----- Setup RFID readers ---------------------------------------------------
   //measure resonant frequency and confirm/repeat on detune
   for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
@@ -409,9 +413,10 @@ void setup(){
       #ifdef SERIAL_TUNING
       ansi.gotoXY(20*waited/3000,4);
       ansi.print("▓");
-      #endif 
+      
       ansi.gotoXY(20,3);
       ansi.print("│");
+      #endif 
       oled.sendBuffer();
        buttonpress = getNBButton();
         
@@ -574,7 +579,7 @@ void setup(){
   dataFileBackup.flush();
   
   //output start log to console
-  if(is_testing){
+  #ifdef DEBUG_OUTPUT
     Serial.print("# Modular MoPSS Hive version: ");
     Serial.println(SOFTWARE_REV);
     
@@ -607,8 +612,8 @@ void setup(){
     Serial.print("# Unixtime: ");
     Serial.println(starttime);
     Serial.println();
-  }
   
+  #endif
   //---- setup experiment ------------------------------------------------------
   
   // enableReader(RFIDreader[0][0]);
@@ -632,6 +637,7 @@ void loop(){
   String MISCdataString = "";   //holds info of time sync events (and possibly other events)
   
   uint8_t button = getNBButton();
+  button = getNBButton();
   
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
@@ -685,6 +691,8 @@ void loop(){
       }
     }
   }
+  
+  #ifdef USE_ETHERNET
   
   //----------------------------------------------------------------------------
   //update RTC -----------------------------------------------------------------
@@ -746,7 +754,7 @@ void loop(){
       }
     }
   }
-  
+  #endif 
   //----------------------------------------------------------------------------
   //update display -------------------------------------------------------------
   //----------------------------------------------------------------------------
@@ -811,6 +819,7 @@ void loop(){
         OLEDprint(4,0,0,0,hrtagtime);
       }
       
+      #ifdef USE_ETHERNET
       //--- NTP page
       if(page == arp){
         OLEDprint(1,0,0,0,"last o. sync");
@@ -829,6 +838,7 @@ void loop(){
         else if(NTPstate != 0 && median_ok) OLEDprint(4,13,0,0,"offline");
         else if(NTPstate != 0 && !median_ok) OLEDprint(4,13,0,0,"no sync");
       }
+      #endif 
       
       //--- update display ---
       oled.sendBuffer();
@@ -845,7 +855,9 @@ void loop(){
     dataFile.flush();
     dataFileBackup.println(SENSORDataString);
     dataFileBackup.flush();
-    if(is_testing == 1) Serial.println(SENSORDataString); //print to serial if in testmode
+    #ifdef DEBUG_OUTPUT
+    Serial.println(SENSORDataString); //print to serial if in testmode
+    #endif
   }
   //log RFID events
   if(RFIDdataString.length() != 0){
@@ -853,7 +865,9 @@ void loop(){
 		dataFile.flush();
 		dataFileBackup.println(RFIDdataString);
 		dataFileBackup.flush();
-		if(is_testing == 1) Serial.println(RFIDdataString);
+    #ifdef DEBUG_OUTPUT
+		Serial.println(RFIDdataString);
+    #endif
 	}
   //log MISC events ~2-3ms
   if(MISCdataString.length() != 0){
@@ -861,7 +875,9 @@ void loop(){
 		dataFile.flush();
 		dataFileBackup.println(MISCdataString);
 		dataFileBackup.flush();
-    if(is_testing == 1) Serial.println(MISCdataString);
+    #ifdef DEBUG_OUTPUT
+    Serial.println(MISCdataString);
+    #endif
 	}
 
 } //end of loop
@@ -1049,7 +1065,7 @@ void criticalerror(){
   #ifndef IGNORE_ERRORS
   
   
-  while(0){
+  while(1){
     digitalWrite(errorLED,HIGH);
     delay(200);
     digitalWrite(errorLED,LOW);
@@ -1102,6 +1118,16 @@ uint8_t getButton(uint32_t timeout_ms){
   if(input > 150 && input <= 450) return 2;
   if(input > 450 && input <= 850) return 3;
   if (input > 850) return(0);
+  #ifdef SERIAL_TUNING
+        if(Serial.available())
+        {
+        char inp[5];
+        Serial.readBytes(inp,1);
+        ansi.gotoXY(6,10);
+        ansi.print(inp);
+        return (atoi(&inp[0]));
+        }
+  #endif
 }
 
 //returns which button is currently pressed (non-blocking) ---------------------
@@ -1118,7 +1144,7 @@ uint8_t getNBButton(){
         ansi.print(inp);
         return (atoi(&inp[0]));
         }
-#endif
+  #endif
 
   if(input <= 150) now= 1;
   if(input > 150 && input <= 450)now=2;
@@ -1340,29 +1366,28 @@ bool startChecks()
   uint8_t err;
   uint8_t startOK=0;
 OLEDprint(0,0,1,1,">>>  Setup Checks  <<<");
-for(uint8_t r = 0;r < arp;r+=2){   //iterate through all active reader pairs
+for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
     
     char reader1[4] = {'R',RFIDreaderNames[r],'1'};
+    bool check1 = checkModule(RFIDreader[r][0]);
     OLEDprint(r+1,0,0,0,reader1);
     OLEDprint(r+1,3,0,0,":");
-    OLEDprint(r+1,4,0,0,!checkModule(RFIDreader[r][0])?"OK":"X");
+    OLEDprint(r+1,4,0,0,!check1?"OK":"X");
     
     char reader2[4] = {'R',RFIDreaderNames[r],'2'};
+    bool check2 = checkModule(RFIDreader[r][1]);
     OLEDprint(r+1,8,0,0,reader2);
     OLEDprint(r+1,11,0,0,":");
-    OLEDprint(r+1,12,0,1,!checkModule(RFIDreader[r][1])?"OK":"X");
-    
-    r+=1;
-    if (r==arp) break;
-    char reader3[4] = {'R',RFIDreaderNames[r],'1'};
-    OLEDprint(r+1,0,0,0,reader3);
-    OLEDprint(r+1,3,0,0,":");
-    OLEDprint(r+1,4,0,0,!checkModule(RFIDreader[r][0])?"OK":"X");
-    
-    char reader4[4] = {'R',RFIDreaderNames[r],'2'};
-    OLEDprint(r+1,8,0,0,reader4);
-    OLEDprint(r+1,11,0,0,":");
-    OLEDprint(r+1,12,0,1,!checkModule(RFIDreader[r][1])?"OK":"X");
+    OLEDprint(r+1,12,0,1,!check2?"OK":"X");
+    if (check1 | check2)
+    {
+      char line1[20];
+      if (check1)  sprintf(line1,"MISSING %s/0x%02X",reader1,RFIDreader[r][0]);
+
+      char line2[20];
+      if (check2) sprintf(line2,"MISSING %s/0x%02X",reader2,RFIDreader[r][1]);
+    criticalerrorMessage(line1,line2);
+    } 
     
 }
 //Stop program if uSDs are not detected/faulty (needs to be FAT/FAT32/exFAT format)
