@@ -48,7 +48,7 @@ D19 - SCL
 
 //#define USE_ETHERNET TRUE
 // #define PERFORM_CHECKS TRUE
-//3#define SERIAL_TUNING TRUE
+// #define SERIAL_TUNING TRUE
 //----- declaring variables ----------------------------------------------------
 //Current Version of the program
 const char SOFTWARE_REV[] = "v1.0.0";
@@ -111,7 +111,7 @@ const uint8_t oledDisplay = 0x78; //I2C address oled display
 
 //Buttons
 const int buttons = A13;    //~1022 not pressed, ~1 left, ~323 middle, ~711 right
-uint8_t getButton(uint32_t timeout_ms=0);
+
 //LEDs
 const int errorLED = 32;
 const int statusLED = 31;
@@ -160,7 +160,7 @@ uint32_t rtccheck_time;    //time the rtc was checked last
 //##############################################################################
 
 //active reader pairs == amount of RFID modules in use
-const uint8_t arp = 2;
+const uint8_t arp = ACTIVE_PAIRS;
 
 //Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
 //output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
@@ -190,8 +190,8 @@ void setup(){
   if(is_testing == 1){
     //while(!Serial); //wait for serial connection
     //delay(1000);
-    Serial.println("alive");
   }
+  ansi.clearScreen();
   ansi.reset();
   //start I2C
   Wire.setClock(400 * 1000U); //100k, 400k, 1M are allowed //might be altered by oled to 400k
@@ -1046,6 +1046,9 @@ uint8_t fetchtag(byte reader, byte busrelease){
 
 //critical error, flash LED, stop everything -----------------------------------
 void criticalerror(){
+  #ifndef IGNORE_ERRORS
+  
+  
   while(0){
     digitalWrite(errorLED,HIGH);
     delay(200);
@@ -1057,9 +1060,11 @@ void criticalerror(){
     SCB_AIRCR = 0x05FA0004;
     }
   }
+  #endif // !IGNORE_ERRORS
 }
 
 void criticalerrorMessage(char *message,char *message2){
+  #ifndef IGNORE_ERRORS
   OLEDprint(0,0,1,0,">>> CRIT ERROR <<<");
   OLEDprint(1,0,0,0,message);
   OLEDprint(2,0,0,1,message2);
@@ -1075,6 +1080,7 @@ void criticalerrorMessage(char *message,char *message2){
     SCB_AIRCR = 0x05FA0004;
     }
   }
+   #endif // !IGNORE_ERRORS
 }
 //confirm with any button ------------------------------------------------------
 void confirm(){

@@ -19,7 +19,7 @@ uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync)
 
 
 uint8_t getNBButton();
-uint8_t getButton();
+uint8_t getButton(uint32_t timeout_ms=0);
 void confirm();
 void OLEDprint();
 
