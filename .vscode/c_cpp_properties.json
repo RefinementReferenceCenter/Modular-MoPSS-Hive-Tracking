@@ -237,6 +237,7 @@
                 "__IMXRT1062__",
                 "ARDUINO_TEENSY41",
                 "PERFORM_CHECKS",
+                "ENV_NAME=\"debug\"",
                 "IGNORE_ERRORS",
                 "ACTIVE_PAIRS=2",
                 "DEBUG_OUTPUT",

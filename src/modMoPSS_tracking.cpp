@@ -251,10 +251,12 @@ void setup(){
   oled.begin();
   oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
   
-  
-  OLEDprint(4,0,0,0,"MoPSS Modular");
-    OLEDprint(5,0,0,0,"Starting....");
   oled.drawXBM(0,0, ModMopSS_logo_width, ModMopSS_logo_height, ModMopSS_logo_bits);
+  OLEDprint(3,0,0,0,"MoPSS Modular");
+    OLEDprint(4,0,0,0,"Starting....");
+    OLEDprint(5,0,0,0,"ENV:");
+    OLEDprint(5,5,0,0,ENV_NAME);
+  
   oled.updateDisplay();
   delay(1000);
   oled.clearDisplay();
