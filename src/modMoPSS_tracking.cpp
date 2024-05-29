@@ -86,7 +86,7 @@ uint8_t force_sync = 0;      //force NTP sync flag
 double burst_array[3];       //stores RTC drift values of multiple syncs to get more accurate drift values
 double NTP_timestamps[5];    //stores the timestamps of the NTP packet, local send/rec, server send/rec and adjusted time
 const double clock_set_offset = 0.00096084; //time it takes the RTC to be set (RTC is briefly stopped while being set)
-
+ 
 
 ANSI ansi(&Serial);
 
@@ -141,7 +141,8 @@ int16_t page = 0;            //currently displayed page
 uint8_t globalRFIDtoggle = 0; //flag to switch between antennas of all modules
 elapsedMillis globalRFIDtime; //global timer to switch antennas in pairs
 
-uint8_t tag[7] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature
+uint8_t RFIDreaderStatus[maxReaderPairs]={};
+uint8_t tag[8] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature,7 status flags
 uint8_t currenttag1[maxReaderPairs][7] = {}; //saves id of the tag that was read during the current read cycle
 uint8_t currenttag2[maxReaderPairs][7] = {};
 uint8_t lasttag1[maxReaderPairs][7] = {};    //saves id of the tag that was read during the previous read cycle
@@ -272,7 +273,10 @@ void setup(){
   
   
   //------Check For Connections
+
+  #ifdef PERFORM_CHECKS
   if(startChecks()) criticalerror();
+  #endif
   delay (500);
   
   //----- Real Time Clock ------------------------------------------------------
@@ -656,8 +660,8 @@ void loop(){
       for(uint8_t r = 0;r < arp;r++){
         switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
         
-        uint8_t tag_status = fetchtag(RFIDreader[r][0],1); //fetch data reader1 collected during on-time saved in variable: tag
-        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
+        uint8_t tag_status = fetchtag(RFIDreader[r][0],1,currenttag1[r],RFIDreaderStatus[r*2]); //fetch data reader1 collected during on-time saved in variable: tag
+        // for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
         
         //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
         uint8_t tag_switch = compareTags(currenttag1[r],lasttag1[r]);
@@ -677,8 +681,8 @@ void loop(){
       for(uint8_t r = 0;r < arp;r++){
         switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
         
-        uint8_t tag_status = fetchtag(RFIDreader[r][1],1); //fetch data reader2 collected during on-time saved in variable: tag
-        for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
+        uint8_t tag_status = fetchtag(RFIDreader[r][1],1,currenttag2[r],RFIDreaderStatus[(r*2)+1]);
+        // for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
         
         //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
         uint8_t tag_switch = compareTags(currenttag2[r],lasttag2[r]);
@@ -786,7 +790,7 @@ void loop(){
       ////--- draw UI elements ---
       
       if(page > maxpages) page = 0;
-      if(page < 0) page = maxpages;
+      if(page < -1) page = maxpages;
       
       OLEDprint(0,0,0,0,nicetime(rtctime));
       OLEDprint(0,11,0,0,ndate);
@@ -796,7 +800,21 @@ void loop(){
       OLEDprint(5,9,0,0,"OFF");
       
       //--- RFID pages display last read tag
-      if(page <= arp - 1){
+      if(page==-1)
+      {
+       OLEDprint(0,0,1,0,">>>     ERROR   <<<");
+       OLEDprint(1,0,0,0,"MISSING ANT");
+       for(uint8_t r = 0;r < arp*2;r++)
+       {
+       if (RFIDreaderStatus[r] & 0X80)
+       {
+        char readerName[4] = {'R',RFIDreaderNames[r],'0'+(r % 2 +1)};
+        OLEDprint(2+r,4*(r % 2),0,0,readerName);
+        Serial.println(4*(r % 2));
+       }
+       }
+      }
+      else if(page <= arp - 1){
         uint8_t r = page;
         
         char reader[3] = {'R',RFIDreaderNames[r]}; //create string for the reader name
@@ -1036,23 +1054,29 @@ uint32_t fetchResFreqCont(uint8_t reader){
 }
 
 //fetch tag data from reader ---------------------------------------------------
-uint8_t fetchtag(byte reader, byte busrelease){
-  Wire.requestFrom(reader,7,busrelease); //address, quantity ~574uS, bus release
+uint8_t fetchtag(byte reader, byte busrelease,uint8_t (&tag)[7], uint8_t &status){
+  Wire.requestFrom(reader,8,busrelease); //address, quantity ~574uS, bus release
   uint8_t n = 0;
   while(Wire.available()){
-    tag[n] = Wire.read();
+    if (n<7)    tag[n] = Wire.read();
+    else status=Wire.read();
     n++;
   }
-
+  
   //sum received values
   int16_t tag_sum = 0;
-  for(uint8_t i = 0; i < sizeof(tag); i++){
+  for(uint8_t i = 0; i < sizeof(tag-1); i++){
     tag_sum = tag_sum + tag[i];
   }
-  
+   //status=tag[7];
+   if(status & 0x80) 
+   {
+  page=-1;
+  return 3;
+   }
   //return status
   if(n == 0){                     //if we didn't receive any data from reader, zero tag
-    for(uint8_t i = 0;i < 7;i++) tag[i] = 0;
+    // for(uint8_t i = 0;i < 8;i++) tag[i] = 0;
     return 2;
   }
   else if(tag_sum > 0) return 1;  //if we received data
@@ -1125,8 +1149,6 @@ uint8_t getButton(uint32_t timeout_ms){
         {
         char inp[5];
         Serial.readBytes(inp,1);
-        ansi.gotoXY(6,10);
-        ansi.print(inp);
         return (atoi(&inp[0]));
         }
   #endif
@@ -1142,8 +1164,6 @@ uint8_t getNBButton(){
         {
         char inp[5];
         Serial.readBytes(inp,1);
-        ansi.gotoXY(6,10);
-        ansi.print(inp);
         return (atoi(&inp[0]));
         }
   #endif

@@ -36,7 +36,7 @@ void enableReader(uint8_t reader);
 void disableReader(uint8_t reader);
 uint8_t compareTags(byte currenttag[], byte lasttag[]);
 int16_t tagSum(byte tag[]);
-uint8_t fetchtag(byte reader, byte busrelease);
+uint8_t fetchtag(byte reader, byte busrelease,uint8_t (&tag)[7], uint8_t &status);
 void switchReaders(byte readerON, byte readerOFF);
 void setReaderMode(uint8_t reader,uint8_t mode);
 uint32_t fetchResFreq(uint8_t reader);
