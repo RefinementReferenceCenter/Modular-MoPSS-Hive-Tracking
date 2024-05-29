@@ -13,7 +13,7 @@ D3,D2   - X8
 
 - multi-purpose 3-pin connectors (Signal|GND|+12V)
 D9  - J4
-D8  - J5
+D8  - J5freq
 D7  - J6
 D6  - J7
 
@@ -143,18 +143,18 @@ elapsedMillis globalRFIDtime; //global timer to switch antennas in pairs
 
 uint8_t RFIDreaderStatus[maxReaderPairs]={};
 uint8_t tag[8] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature,7 status flags
-uint8_t currenttag1[maxReaderPairs][7] = {}; //saves id of the tag that was read during the current read cycle
-uint8_t currenttag2[maxReaderPairs][7] = {};
-uint8_t lasttag1[maxReaderPairs][7] = {};    //saves id of the tag that was read during the previous read cycle
-uint8_t lasttag2[maxReaderPairs][7] = {};
+uint8_t currenttag1[maxReaderPairs][2][7] = {}; //saves id of the tag that was read during the current read cycle
+uint8_t currenttag2[maxReaderPairs][2][7] = {};
+uint8_t lasttag1[maxReaderPairs][2][7] = {};    //saves id of the tag that was read during the previous read cycle
+uint8_t lasttag2[maxReaderPairs][2][7] = {};
 
-uint8_t latestreadtag1[maxReaderPairs][7] = {}; //stores the last recorded tag, currenttag/lasttag are cleared when no tag was read
-uint8_t latestreadtag2[maxReaderPairs][7] = {};
-uint32_t latest_tagtime1[maxReaderPairs] = {};  //stores the time of the last recorded tag, currenttag/lasttag are cleared when no tag was read
-uint32_t latest_tagtime2[maxReaderPairs] = {};
+uint8_t latestreadtag1[maxReaderPairs][2][7] = {}; //stores the last recorded tag, currenttag/lasttag are cleared when no tag was read
+uint8_t latestreadtag2[maxReaderPairs][2][7] = {};
+uint32_t latest_tagtime1[maxReaderPairs][2] = {};  //stores the time of the last recorded tag, currenttag/lasttag are cleared when no tag was read
+uint32_t latest_tagtime2[maxReaderPairs][2] = {};
 
-int32_t reader1freq[maxReaderPairs] = {};    //saves resonant frequency measured at bootup
-int32_t reader2freq[maxReaderPairs] = {};
+int32_t reader1freq[maxReaderPairs][2] = {};    //saves resonant frequency measured at bootup
+int32_t reader2freq[maxReaderPairs][2] = {};
 
 //Experiment variables
 uint32_t starttime;        //start of programm
@@ -522,12 +522,12 @@ void setup(){
     dataFile.print("# RFID Antenna ");
     dataFile.print(reader1);
     dataFile.print(" resonant frequency: ");
-    dataFile.print(reader1freq[r]);
+    dataFile.print(reader1freq[r][0]);
     dataFile.println(" Hz");
     dataFile.print("# RFID Antenna ");
     dataFile.print(reader2);
     dataFile.print(" resonant frequency: ");
-    dataFile.print(reader2freq[r]);
+    dataFile.print(reader2freq[r][1]);
     dataFile.println(" Hz");
   }
   
@@ -559,12 +559,12 @@ void setup(){
     dataFileBackup.print("# RFID Antenna ");
     dataFileBackup.print(reader1);
     dataFileBackup.print(" resonant frequency: ");
-    dataFileBackup.print(reader1freq[r]);
+    dataFileBackup.print(reader1freq[r][0]);
     dataFileBackup.println(" Hz");
     dataFileBackup.print("# RFID Antenna ");
     dataFileBackup.print(reader2);
     dataFileBackup.print(" resonant frequency: ");
-    dataFileBackup.print(reader2freq[r]);
+    dataFileBackup.print(reader2freq[r][1]);
     dataFileBackup.println(" Hz");
   }
   
@@ -596,12 +596,12 @@ void setup(){
       Serial.print("# RFID Antenna ");
       Serial.print(reader1);
       Serial.print(" resonant frequency: ");
-      Serial.print(reader1freq[r]);
+      Serial.print(reader1freq[r][0]);
       Serial.println(" Hz");
       Serial.print("# RFID Antenna ");
       Serial.print(reader2);
       Serial.print(" resonant frequency: ");
-      Serial.print(reader2freq[r]);
+      Serial.print(reader2freq[r][0]);
       Serial.println(" Hz");
     }
     
@@ -655,48 +655,50 @@ void loop(){
   if(globalRFIDtime >= 100){
     globalRFIDtime = 0;  //reset time
     
-    if(globalRFIDtoggle == 1){
-      globalRFIDtoggle = 0; //toggle the toggle
+    // if(globalRFIDtoggle == 1){
+      
       for(uint8_t r = 0;r < arp;r++){
-        switchReaders(RFIDreader[r][1],RFIDreader[r][0]); //enable reader2, disable reader1
+        switchReaders(RFIDreader[r][globalRFIDtoggle],RFIDreader[r][!globalRFIDtoggle]); //enable reader2, disable reader1
         
-        uint8_t tag_status = fetchtag(RFIDreader[r][0],1,currenttag1[r],RFIDreaderStatus[r*2]); //fetch data reader1 collected during on-time saved in variable: tag
+        uint8_t tag_status = fetchtag(RFIDreader[r][globalRFIDtoggle],1,currenttag1[r][globalRFIDtoggle],RFIDreaderStatus[r*2+globalRFIDtoggle]); //fetch data reader1 collected during on-time saved in variable: tag
         // for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
         
         //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-        uint8_t tag_switch = compareTags(currenttag1[r],lasttag1[r]);
-        char reader[4] = {'R',RFIDreaderNames[r],'1'};
-        RFIDdataString = createRFIDDataString(currenttag1[r], lasttag1[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
-        for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) lasttag1[r][i] = currenttag1[r][i]; //copy currenttag to lasttag
+        uint8_t tag_switch = compareTags(currenttag1[r][globalRFIDtoggle],lasttag1[r][globalRFIDtoggle]);
+        char reader[4] = {'R',RFIDreaderNames[r],'0'+globalRFIDtoggle+1};
+        RFIDdataString = createRFIDDataString(currenttag1[r][globalRFIDtoggle], lasttag1[r][globalRFIDtoggle], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
+        for(uint8_t i = 0; i < sizeof(currenttag1[r][globalRFIDtoggle]); i++) lasttag1[r][globalRFIDtoggle][i] = currenttag1[r][globalRFIDtoggle][i]; //copy currenttag to lasttag
         
         if(tag_status == 1){ //tag is not empty
-          for(uint8_t i = 0; i < sizeof(currenttag1[r]); i++) latestreadtag1[r][i] = currenttag1[r][i]; //copy latesttag
-          latest_tagtime1[r] = Teensy3Clock.get();
+          for(uint8_t i = 0; i < sizeof(currenttag1[r][globalRFIDtoggle]); i++) latestreadtag1[r][globalRFIDtoggle][i] = currenttag1[r][globalRFIDtoggle][i]; //copy latesttag
+          latest_tagtime1[r][globalRFIDtoggle] = Teensy3Clock.get();
         }
         
       }
+      globalRFIDtoggle = !globalRFIDtoggle; //toggle the toggle
+    // }
+
+    // else{
+    //   globalRFIDtoggle = 1; //toggle the toggle
+    //   for(uint8_t r = 0;r < arp;r++){
+    //     switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
+        
+    //     uint8_t tag_status = fetchtag(RFIDreader[r][1],1,currenttag2[r],RFIDreaderStatus[(r*2)+1]);
+    //     // for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
+        
+    //     //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
+    //     uint8_t tag_switch = compareTags(currenttag2[r],lasttag2[r]);
+    //     char reader[4] = {'R',RFIDreaderNames[r],'2'};
+    //     RFIDdataString = createRFIDDataString(currenttag2[r], lasttag2[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
+    //     for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) lasttag2[r][i] = currenttag2[r][i]; //copy currenttag to lasttag
+        
+    //     if(tag_status == 1){ //tag is not empty
+    //       for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) latestreadtag2[r][i] = currenttag2[r][i]; //copy latesttag
+    //       latest_tagtime2[r] = Teensy3Clock.get();
+    //     }
+    //   }
     }
-    else{
-      globalRFIDtoggle = 1; //toggle the toggle
-      for(uint8_t r = 0;r < arp;r++){
-        switchReaders(RFIDreader[r][0],RFIDreader[r][1]); //enable reader1, disable reader2
-        
-        uint8_t tag_status = fetchtag(RFIDreader[r][1],1,currenttag2[r],RFIDreaderStatus[(r*2)+1]);
-        // for(uint8_t i = 0; i < sizeof(tag); i++) currenttag2[r][i] = tag[i]; //copy received tag to current tag
-        
-        //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
-        uint8_t tag_switch = compareTags(currenttag2[r],lasttag2[r]);
-        char reader[4] = {'R',RFIDreaderNames[r],'2'};
-        RFIDdataString = createRFIDDataString(currenttag2[r], lasttag2[r], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
-        for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) lasttag2[r][i] = currenttag2[r][i]; //copy currenttag to lasttag
-        
-        if(tag_status == 1){ //tag is not empty
-          for(uint8_t i = 0; i < sizeof(currenttag2[r]); i++) latestreadtag2[r][i] = currenttag2[r][i]; //copy latesttag
-          latest_tagtime2[r] = Teensy3Clock.get();
-        }
-      }
-    }
-  }
+  
   
   #ifdef USE_ETHERNET
   
@@ -816,27 +818,30 @@ void loop(){
       }
       else if(page <= arp - 1){
         uint8_t r = page;
-        
+        #pragma GCC unroll 2
+        for (byte c=0;c<2;c++)
+        {
         char reader[3] = {'R',RFIDreaderNames[r]}; //create string for the reader name
         //reader 1
-        String shorttagID = getID(latestreadtag1[r]); //get tag in string format
+        String shorttagID = getID(latestreadtag1[r][c]); //get tag in string format
         shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1); //use last 7 digits of RFID tag
-        float tagTemp = getTemperatureC(latestreadtag1[r]); //get temperature in °C format
+        float tagTemp = getTemperatureC(latestreadtag1[r][c]); //get temperature in °C format
         String hrtag;
-        hrtag = String(reader) + "1: " + shorttagID + " | " + String(tagTemp,1) + "C";  //make a nice string for printing
-        String hrtagtime = String(reader) + "1: " + nicetime(latest_tagtime1[r]); //make a nice string for printing
+        hrtag = String(reader) + String(c) +": " + shorttagID + " | " + String(tagTemp,1) + "C";  //make a nice string for printing
+        String hrtagtime = String(reader) + String(c) + ": " + nicetime(latest_tagtime1[r][c]); //make a nice string for printing
         
-        OLEDprint(1,0,0,0,hrtag);
-        OLEDprint(2,0,0,0,hrtagtime);
+        OLEDprint(1+2*c,0,0,0,hrtag);
+        OLEDprint(2+2*c,0,0,0,hrtagtime);
         //reader 2
-        shorttagID = getID(latestreadtag2[r]);
-        shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1);
-        tagTemp = getTemperatureC(latestreadtag2[r]);
-        hrtag = String(reader) + "2: " + shorttagID + " | " + String(tagTemp,1) + "C";
-        hrtagtime = String(reader) + "2: "  + nicetime(latest_tagtime2[r]);
+        // shorttagID = getID(latestreadtag2[r][0]);
+        // shorttagID = shorttagID.substring(shorttagID.length()-7,shorttagID.length()+1);
+        // tagTemp = getTemperatureC(latestreadtag2[r][0]);
+        // hrtag = String(reader) + "2: " + shorttagID + " | " + String(tagTemp,1) + "C";
+        // hrtagtime = String(reader) + "2: "  + nicetime(latest_tagtime2[r][0]);
         
-        OLEDprint(3,0,0,0,hrtag);
-        OLEDprint(4,0,0,0,hrtagtime);
+        // OLEDprint(3,0,0,0,hrtag);
+        // OLEDprint(4,0,0,0,hrtagtime);
+        }
       }
       
       #ifdef USE_ETHERNET
