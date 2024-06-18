@@ -396,17 +396,17 @@ void setup(){
     OLEDprint(5,14,0,1,"TUNE?");
     uint8_t RFIDmodulestate = 0;
     
-    reader1freq[r] = fetchResFreq(RFIDreader[r][0]);
-    OLEDprintFraction(1,5,0,0,(float)reader1freq[r]/1000,3);
+    reader1freq[r][0] = fetchResFreq(RFIDreader[r][0]);
+    OLEDprintFraction(1,5,0,0,(float)reader1freq[r][0]/1000,3);
     OLEDprint(1,12,0,1," kHz");
-    reader2freq[r] = fetchResFreq(RFIDreader[r][1]);
-    OLEDprintFraction(2,5,0,0,(float)reader2freq[r]/1000,3);
+    reader1freq[r][1] = fetchResFreq(RFIDreader[r][1]);
+    OLEDprintFraction(2,5,0,0,(float)reader1freq[r][1]/1000,3);
     OLEDprint(2,12,0,1," kHz");
 
-    if (reader1freq[r]==0) criticalerrorMessage("CHECK ANTENNAS",reader1);
-    if (reader2freq[r]==0) criticalerrorMessage("CHECK ANTENNAS", reader2);
+    if (reader1freq[r][0]==0) criticalerrorMessage("CHECK ANTENNAS",reader1);
+    if (reader1freq[r][1]==0) criticalerrorMessage("CHECK ANTENNAS", reader2);
 
-    if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
+    if((abs(reader1freq[r][0] - 134200) >= 1000) || (abs(reader1freq[r][1] - 134200) >= 1000))
       OLEDprint(4,0,0,1,"Antenna detuned!");
     elapsedMillis waited;
     waited=0;
@@ -445,11 +445,11 @@ void setup(){
       OLEDprint(1,3,0,0,":");
       OLEDprint(5,0,0,0,"CONFIRM");
       OLEDprint(5,14,0,0,"SWITCH");
-      reader1freq[r] = fetchResFreqCont(RFIDreader[r][activeUnit]);
-      OLEDprintFraction(1,5,0,0,(float)reader1freq[r]/1000,3);
+      reader1freq[r][activeUnit] = fetchResFreqCont(RFIDreader[r][activeUnit]);
+      OLEDprintFraction(1,5,0,0,(float)reader1freq[r][activeUnit]/1000,3);
       OLEDprint(1,12,0,0," kHz");
       
-      int16_t error=(reader1freq[r] - 134200);
+      int16_t error=(reader1freq[r][activeUnit] - 134200);
       error=error<-2000?-2000:error;
       error=error>2000?2000:error;
 
@@ -478,7 +478,7 @@ void setup(){
       ansi.print("╽");
       #endif
       oled.setFont(u8g2_font_6x10_mf); //set font w5 h10
-      if((abs(reader1freq[r] - 134200) >= 1000) || (abs(reader2freq[r] - 134200) >= 1000))
+      if((abs(reader1freq[r][0] - 134200) >= 1000) || (abs(reader1freq[r][1] - 134200) >= 1000))
         OLEDprint(4,0,0,1,"Antenna detuned!");
         
       
