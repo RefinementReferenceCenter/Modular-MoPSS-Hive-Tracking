@@ -159,6 +159,8 @@ int32_t reader2freq[maxReaderPairs][2] = {};
 //Experiment variables
 uint32_t starttime;        //start of programm
 uint32_t rtccheck_time;    //time the rtc was checked last
+Scheduler ts;
+Task tBlink1 ( 100, TASK_FOREVER, &testTask, &ts, true );
 
 //##############################################################################
 //#####   U S E R   C O N F I G  ###############################################
@@ -636,7 +638,7 @@ void setup(){
 //#####   L O O P   ############################################################
 //##############################################################################
 void loop(){
-
+  ts.execute();
   //create/clear strings that get written to uSD card
   String RFIDdataString = "";   //holds tag and date
   String SENSORDataString = ""; //holds various sensor and diagnostics data
@@ -916,7 +918,14 @@ time_t getTeensy3Time(){
   return Teensy3Clock.get();
 }
 
+void testTask()
+{
+  static long lastMillis;
 
+  digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));
+  Serial.println(millis()-lastMillis);
+  lastMillis=millis();
+}
 //Helper for printing to OLED Display (text) -----------------------------------
 void OLEDprint(uint8_t row, uint8_t column, uint8_t clear, uint8_t update, String text){
   if(clear) 

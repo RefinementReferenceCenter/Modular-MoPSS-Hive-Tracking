@@ -11,7 +11,7 @@
 #include <QNEthernet.h>      //for ethernet
 #include <ModMoPSS_logo.h>
 #include <ansi.h>
-
+#include <TaskScheduler.h>
 bool startChecks();
 bool checkModule(uint8_t address);
 String vhrTime(String text,double time);
@@ -41,5 +41,7 @@ void switchReaders(byte readerON, byte readerOFF);
 void setReaderMode(uint8_t reader,uint8_t mode);
 uint32_t fetchResFreq(uint8_t reader);
 uint32_t fetchResFreqCont(uint8_t reader);
+
+void testTask();
 
 #endif
