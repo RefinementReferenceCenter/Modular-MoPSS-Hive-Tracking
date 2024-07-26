@@ -83,7 +83,7 @@ elapsedMillis NTPsynctime;   //time since last ntp sync in ms
 double last_sync;            //last time NTP synced successfully
 double second_last_sync;     //second last successfull sync time
 uint8_t NTP_sync_failed = 0; //counts how often the NTP sync failed
-uint8_t force_sync = 0;      //force NTP sync flag
+uint8_t force_sync = 1;      //force NTP sync flag; Set to one to force a sync on startup
 double burst_array[3];       //stores RTC drift values of multiple syncs to get more accurate drift values
 double NTP_timestamps[5];    //stores the timestamps of the NTP packet, local send/rec, server send/rec and adjusted time
 const double clock_set_offset = 0.00096084; //time it takes the RTC to be set (RTC is briefly stopped while being set)
@@ -1091,7 +1091,9 @@ uint8_t fetchtag(byte reader, byte busrelease,uint8_t (&tag)[7], uint8_t &status
    //status=tag[7];
    if(status & 0x80) 
    {
+    #ifndef IGNORE_ERRORS
   page=-1;
+  #endif
   return 3;
    }
   //return status
@@ -1266,7 +1268,6 @@ uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync)
       
       //--- Send the packet. Dependent on server response time, with local network fritzbox this can take about ~8 ms (avg ~3 ms)
       if(!Ethernet.linkState()) return 5; //check if we have an ethernet connection
-      static IPAddress ntps =IPAddress(192,168,0,253);
       if(!udp.send(Ethernet.gatewayIP(),NTPPort,ntpbuf,48)) return 1; //server address, port, data, length, this takes seconds to timeout
       
       elapsedMicros timeout_us;  //micros for benchmarking
