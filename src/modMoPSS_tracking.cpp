@@ -66,6 +66,7 @@ EthernetUDP udp; //UDP port
 //NTP server (fritz.box or other) on local network is very fast and recommended
 //de.pool.ntp.org took in tests about ~200ms to respond to the ntp request vs local fritz.box ~3ms
 const char NTPserver[] = "fritz.box";
+
 uint8_t ntpbuf[48];                         //ntp packet buffer
 const uint32_t NTP_server_timeout = 25'000; //how long to wait for ntp server repsonse in us
 double server_res_ms; //time it takes for the NTP server to respond to the request
@@ -172,7 +173,7 @@ const uint8_t arp = ACTIVE_PAIRS;
 //Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
 //output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
 //It is only necessary to asign identifiers equal to the amount of active reader pairs
-const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','C','?','?','?','?','?','?','?'}; //Single character only!
+const char RFIDreaderNames[maxReaderPairs + 1] = {'H','F','A','?','?','?','?','?','?','?'}; //Single character only!
 
 //Interval at which the RTC should be updated, either via NTP or offline if enough data is available
 const uint16_t syncinterval = 600; //in seconds
@@ -194,10 +195,7 @@ void setup(){
   //----- Serial & I2C ---------------------------------------------------------
   //start Serial communication
   Serial.begin(115200);
-  // if(is_testing == 1){
-  //   //while(!Serial); //wait for serial connection
-  //   //delay(1000);
-  // }
+  analogReadAveraging(16);
   ansi.clearScreen();
   ansi.reset();
   //start I2C
@@ -261,6 +259,8 @@ void setup(){
     OLEDprint(5,5,0,0,ENV_NAME);
   
   oled.updateDisplay();
+  //while(!Serial); //wait for serial connection
+    delay(1000);
   delay(1000);
   oled.clearDisplay();
   oled.updateDisplay();
@@ -279,7 +279,7 @@ void setup(){
   #ifdef PERFORM_CHECKS
   if(startChecks()) criticalerror();
   #endif
-  delay (500);
+  delay (1000);
   
   //----- Real Time Clock ------------------------------------------------------
   setSyncProvider(getTeensy3Time); //set RTC to time of upload from PC
@@ -375,7 +375,7 @@ void setup(){
   ntpbuf[13] = 90;
   ntpbuf[14] = 90;
   ntpbuf[15] = 90;
-  
+  delay (1000);
   #endif
 
 
@@ -645,7 +645,7 @@ void loop(){
   String MISCdataString = "";   //holds info of time sync events (and possibly other events)
   
   uint8_t button = getNBButton();
-  button = getNBButton();
+  //button = getNBButton();
   
   //----------------------------------------------------------------------------
   //record RFID tags -----------------------------------------------------------
@@ -771,9 +771,15 @@ void loop(){
   if(button == 2){
       displayon = !displayon;
       }
-  else if(button == 1) page -= 1;
-  else if(button == 3) page += 1;
-  if((globalRFIDtime < 50) && (displaytime >= 1000)){ //once every second, and only if we still have 50ms to go before next sync
+  else if(button == 1) 
+  {page -= 1;
+  if(page < 0) page = maxpages;}
+  else if(button == 3) 
+  {page += 1;
+
+  
+  }
+  if((globalRFIDtime < 50) && (displaytime >= 500)){ //once every second, and only if we still have 50ms to go before next sync
     displaytime = 0;
     //uint8_t button = getNBButton();
     
@@ -812,9 +818,8 @@ void loop(){
        {
        if (RFIDreaderStatus[r] & 0X80)
        {
-        char readerName[4] = {'R',RFIDreaderNames[r],'0'+(r % 2 +1)};
-        OLEDprint(2+r,4*(r % 2),0,0,readerName);
-        Serial.println(4*(r % 2));
+        char readerName[4] = {'R',RFIDreaderNames[r/2],'0'+(r % 2 +1)};
+        OLEDprint(2+r/2,4*(r % 2),0,0,readerName);
        }
        }
       }
@@ -861,9 +866,10 @@ void loop(){
         else if(!median_ok) OLEDprint(3,11,0,0,"low data");
         
         OLEDprint(4,0,0,0,"sync status:");
-        if(NTPstate == 0) OLEDprint(4,13,0,0,"online");
-        else if(NTPstate != 0 && median_ok) OLEDprint(4,13,0,0,"offline");
-        else if(NTPstate != 0 && !median_ok) OLEDprint(4,13,0,0,"no sync");
+        OLEDprint(4,13,0,0,NTPstate);
+        // if(NTPstate == 0) OLEDprint(4,13,0,0,"online");
+        // else if(NTPstate != 0 && median_ok) OLEDprint(4,13,0,0,"offline");
+        // else if(NTPstate != 0 && !median_ok) OLEDprint(4,13,0,0,"no sync");
       }
       #endif 
       
@@ -923,7 +929,7 @@ void testTask()
   static long lastMillis;
 
   digitalWrite(LED_BUILTIN,!digitalRead(LED_BUILTIN));
-  Serial.println(millis()-lastMillis);
+  
   lastMillis=millis();
 }
 //Helper for printing to OLED Display (text) -----------------------------------
@@ -1183,11 +1189,20 @@ uint8_t getNBButton(){
   #endif
 
   if(input <= 150) now= 1;
-  if(input > 150 && input <= 450)now=2;
-  if(input > 450 && input <= 850) now= 3;
-  if (input > 850) now =0;
+  else if(input > 150 && input <= 450)now=2;
+  else if(input > 450 && input <= 850) now= 3;
+  else if (input > 850) now =0;
   //Serial.printf("L:%d N:%d I:%d",last,now,input);
   if(last==now) return(0);
+  delayMicroseconds(100);
+  int16_t inputCheck = analogRead(buttons);
+  uint8_t now2;
+  if(inputCheck <= 150) now2= 1;
+  else if(inputCheck > 150 && inputCheck <= 450)now2=2;
+  else if(inputCheck > 450 && inputCheck <= 850) now2= 3;
+  else if (inputCheck > 850) now2 =0;
+  if(now2!=now) return(0);
+  Serial.printf("L:%d N:%d N2:%d I:%d IC:%d\n",last,now,now2,input,inputCheck);
   last=now;
   return(now);
 }
@@ -1251,7 +1266,8 @@ uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync)
       
       //--- Send the packet. Dependent on server response time, with local network fritzbox this can take about ~8 ms (avg ~3 ms)
       if(!Ethernet.linkState()) return 5; //check if we have an ethernet connection
-      if(!udp.send(NTPserver,NTPPort,ntpbuf,48)) return 1; //server address, port, data, length, this takes seconds to timeout
+      static IPAddress ntps =IPAddress(192,168,0,253);
+      if(!udp.send(Ethernet.gatewayIP(),NTPPort,ntpbuf,48)) return 1; //server address, port, data, length, this takes seconds to timeout
       
       elapsedMicros timeout_us;  //micros for benchmarking
       while((udp.parsePacket() < 0) && (timeout_us < NTP_server_timeout));   //returns size of packet or <= 0 if no packet, timeout
@@ -1267,6 +1283,7 @@ uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync)
       
       //check if the data we received is according to spec < 0.001 ms
       int mode = ntpbuf[0] & 0x07;
+    
       if(((ntpbuf[0] & 0xc0) == 0xc0) || //LI == 3 (Alarm condition)
         (ntpbuf[1] == 0) ||              //Stratum == 0 (Kiss-o'-Death)
         !(mode == 4 || mode == 5)) {     //Must be Server or Broadcast mode
