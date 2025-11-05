@@ -97,6 +97,8 @@ String createMISCDataString(String identifier, String event1,String event2,Strin
   return dataString;
 }
 
+
+
 //create string that is later saved to uSD -------------------------------------
 String createRFIDDataString(byte currenttag[], byte lasttag[], int tagchange, char identifier[], String dataString){
   time_t nowtime = Teensy3Clock.get();

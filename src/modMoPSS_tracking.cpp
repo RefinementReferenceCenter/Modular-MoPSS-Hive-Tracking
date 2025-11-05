@@ -37,7 +37,7 @@ D19 - SCL
         |                        |
    c    |     |R|        |R|     |    c
    a  ––|–––––|F|––––––––|F|–––––|––  a
-   g    |     |I|        |I|     |    g
+   g    |     |I|        |I|     |    gtest
    e  ––|–––––|D|––––––––|D|–––––|––  e
    1    |     |1|        |2|     |    2
         |                        |
@@ -45,7 +45,7 @@ D19 - SCL
 
 *///----------------------------------------------------------------------------
 #include "modMoPSS_tracking.h"
-
+#include <PubSubClient.h>
 //#define USE_ETHERNET TRUE
 // #define PERFORM_CHECKS TRUE
 // #define SERIAL_TUNING TRUE
@@ -62,6 +62,7 @@ constexpr uint32_t EpochDiff = 2'208'988'800;  //01-Jan-1900 00:00:00 -> 01-Jan-
 constexpr uint32_t EBreakTime = 2'085'978'496; //Epoch -> 07-Feb-2036 06:28:16
 
 EthernetUDP udp; //UDP port
+
 
 //NTP server (fritz.box or other) on local network is very fast and recommended
 //de.pool.ntp.org took in tests about ~200ms to respond to the ntp request vs local fritz.box ~3ms
@@ -138,6 +139,10 @@ int16_t page = 0;            //currently displayed page
 #else
   constexpr uint8_t maxpages = -1 + ACTIVE_PAIRS;
 #endif
+
+IPAddress mqttServer(192, 168, 0, 253);
+EthernetClient ethClient;
+PubSubClient mqttClient(ethClient);
 //RFID
 uint8_t globalRFIDtoggle = 0; //flag to switch between antennas of all modules
 elapsedMillis globalRFIDtime; //global timer to switch antennas in pairs
@@ -173,7 +178,7 @@ const uint8_t arp = ACTIVE_PAIRS;
 //Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
 //output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
 //It is only necessary to asign identifiers equal to the amount of active reader pairs
-const char RFIDreaderNames[maxReaderPairs + 1] = {'H','F','A','?','?','?','?','?','?','?'}; //Single character only!
+const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','A','?','?','?','?','?','?','?'}; //Single character only!
 
 //Interval at which the RTC should be updated, either via NTP or offline if enough data is available
 const uint16_t syncinterval = 600; //in seconds
@@ -185,7 +190,38 @@ const uint16_t syncinterval = 600; //in seconds
 //debug = 0 includes door movements, RFID tags
 //debug = 1 include regular status of the IR barriers
 const uint8_t debug = 0;
+void callback(char* topic, byte* payload, unsigned int length) {
+  Serial.print("Message arrived [");
+  Serial.print(topic);
+  Serial.print("] ");
+  for (int i=0;i<length;i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
 
+
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (mqttClient.connect("arduinoClient")) {
+      Serial.println("connected");
+      // Once connected, publish an announcement...
+      mqttClient.publish("outTopic","hello world");
+      // ... and resubscribe
+      mqttClient.subscribe("inTopic");
+    } else {
+      Serial.print("failed, rc=");
+      Serial.print(mqttClient.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
 //##############################################################################
 //#####   S E T U P   ##########################################################
 //##############################################################################
@@ -376,6 +412,10 @@ void setup(){
   ntpbuf[14] = 90;
   ntpbuf[15] = 90;
   delay (1000);
+
+  mqttClient.setServer(mqttServer, 1883);
+  mqttClient.setCallback(callback);
+
   #endif
 
 
@@ -639,6 +679,7 @@ void setup(){
 //##############################################################################
 void loop(){
   ts.execute();
+
   //create/clear strings that get written to uSD card
   String RFIDdataString = "";   //holds tag and date
   String SENSORDataString = ""; //holds various sensor and diagnostics data
@@ -653,7 +694,12 @@ void loop(){
   //>=80ms are required to cold-start a tag for a successful read (at reduced range)
   //>=90ms for full range, increasing further only seems to increase range due to noise
   //rather than requirements of the tag and coil for energizing (100ms is chosen as a compromise)
-  
+#ifdef  USE_MQTT
+    if (!mqttClient.connected()) {
+    reconnect();
+  }
+  mqttClient.loop();
+#endif
   if(globalRFIDtime >= 100){
     globalRFIDtime = 0;  //reset time
     
@@ -672,6 +718,15 @@ void loop(){
         for(uint8_t i = 0; i < sizeof(currenttag1[r][globalRFIDtoggle]); i++) lasttag1[r][globalRFIDtoggle][i] = currenttag1[r][globalRFIDtoggle][i]; //copy currenttag to lasttag
         
         if(tag_status == 1){ //tag is not empty
+        #if DEBUG_OUTPUT
+        Serial.print(currenttag1[r][globalRFIDtoggle][6]);
+        Serial.print(" | ");
+        Serial.print((currenttag1[r][globalRFIDtoggle][6]*0.2+74));
+        Serial.print(" | ");
+        Serial.print(getTemperatureC(currenttag1[r][globalRFIDtoggle]));
+        Serial.print(" | ");
+        Serial.println(currenttag1[r][globalRFIDtoggle][6],BIN);
+        #endif
           for(uint8_t i = 0; i < sizeof(currenttag1[r][globalRFIDtoggle]); i++) latestreadtag1[r][globalRFIDtoggle][i] = currenttag1[r][globalRFIDtoggle][i]; //copy latesttag
           latest_tagtime1[r][globalRFIDtoggle] = Teensy3Clock.get();
         }
@@ -900,6 +955,10 @@ void loop(){
 		dataFileBackup.flush();
     #ifdef DEBUG_OUTPUT
 		Serial.println(RFIDdataString);
+    
+    #endif
+    #ifdef USE_MQTT
+    mqttClient.publish("MOPPS",RFIDdataString.c_str());
     #endif
 	}
   //log MISC events ~2-3ms
@@ -912,6 +971,7 @@ void loop(){
     Serial.println(MISCdataString);
     #endif
 	}
+
 
 } //end of loop
 
