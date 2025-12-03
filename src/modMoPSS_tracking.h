@@ -43,5 +43,6 @@ uint32_t fetchResFreq(uint8_t reader);
 uint32_t fetchResFreqCont(uint8_t reader);
 
 void testTask();
+void buttonISR();
 
 #endif

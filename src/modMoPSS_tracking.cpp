@@ -118,6 +118,9 @@ const int buttons = A13;    //~1022 not pressed, ~1 left, ~323 middle, ~711 righ
 const int errorLED = 32;
 const int statusLED = 31;
 
+// Button
+const uint8_t buttonGPIO = 7;
+bool buttonFlag=false;
 //SD cardsModules
 #define SD_FAT_TYPE 3
 #define SPI_CLOCK SD_SCK_MHZ(16)
@@ -147,6 +150,7 @@ PubSubClient mqttClient(ethClient);
 uint8_t globalRFIDtoggle = 0; //flag to switch between antennas of all modules
 elapsedMillis globalRFIDtime; //global timer to switch antennas in pairs
 
+uint8_t lastRFIDreaderStatus[maxReaderPairs]={};
 uint8_t RFIDreaderStatus[maxReaderPairs]={};
 uint8_t tag[8] = {};                         //global variable to store returned tag data. 0-5 tag, 6 temperature,7 status flags
 uint8_t currenttag1[maxReaderPairs][2][7] = {}; //saves id of the tag that was read during the current read cycle
@@ -221,6 +225,10 @@ void reconnect() {
       delay(5000);
     }
   }
+}
+
+void buttonISR(){
+  buttonFlag=true;
 }
 //##############################################################################
 //#####   S E T U P   ##########################################################
@@ -307,6 +315,10 @@ void setup(){
   pinMode(errorLED,OUTPUT);
   pinMode(16,OUTPUT); //timing
   
+  #ifdef USE_EVENT_BUTTON
+  pinMode(buttonGPIO, INPUT_PULLUP);
+  attachInterrupt(buttonGPIO,buttonISR,FALLING);
+  #endif
   //----- Sensors --------------------------------------------------------------
   
   
@@ -700,6 +712,12 @@ void loop(){
   }
   mqttClient.loop();
 #endif
+#ifdef USE_EVENT_BUTTON
+    if (buttonFlag){
+      buttonFlag=false;
+      MISCdataString = createMISCDataString("EVENT","BUTTON","PRESSED",MISCdataString);
+    }
+#endif
   if(globalRFIDtime >= 100){
     globalRFIDtime = 0;  //reset time
     
@@ -707,13 +725,24 @@ void loop(){
       
       for(uint8_t r = 0;r < arp;r++){
         switchReaders(RFIDreader[r][globalRFIDtoggle],RFIDreader[r][!globalRFIDtoggle]); //enable reader2, disable reader1
-        
+        lastRFIDreaderStatus[r*2+globalRFIDtoggle]=RFIDreaderStatus[r*2+globalRFIDtoggle];
         uint8_t tag_status = fetchtag(RFIDreader[r][globalRFIDtoggle],1,currenttag1[r][globalRFIDtoggle],RFIDreaderStatus[r*2+globalRFIDtoggle]); //fetch data reader1 collected during on-time saved in variable: tag
+
+        char reader[4] = {'R',RFIDreaderNames[r],'0'+globalRFIDtoggle+1};
+        if((RFIDreaderStatus[r*2+globalRFIDtoggle] & 0X80) && !(lastRFIDreaderStatus[r*2+globalRFIDtoggle] & 0X80))
+        {
+        MISCdataString = createMISCDataString("ANT","MISSING",reader,MISCdataString);
+        }
+        else if (!(RFIDreaderStatus[r*2+globalRFIDtoggle] & 0X80) && (lastRFIDreaderStatus[r*2+globalRFIDtoggle] & 0X80))
+        {
+        MISCdataString = createMISCDataString("ANT","FOUND",reader,MISCdataString);
+        }
+
         // for(uint8_t i = 0; i < sizeof(tag); i++) currenttag1[r][i] = tag[i]; //copy received tag to current tag
         
         //compare current and last tag 0 = no change, 1 = new tag entered, 2 = switch (two present successively), 3 = tag left
         uint8_t tag_switch = compareTags(currenttag1[r][globalRFIDtoggle],lasttag1[r][globalRFIDtoggle]);
-        char reader[4] = {'R',RFIDreaderNames[r],'0'+globalRFIDtoggle+1};
+        
         RFIDdataString = createRFIDDataString(currenttag1[r][globalRFIDtoggle], lasttag1[r][globalRFIDtoggle], tag_switch, reader, RFIDdataString); //create datastring that is written to uSD
         for(uint8_t i = 0; i < sizeof(currenttag1[r][globalRFIDtoggle]); i++) lasttag1[r][globalRFIDtoggle][i] = currenttag1[r][globalRFIDtoggle][i]; //copy currenttag to lasttag
         
