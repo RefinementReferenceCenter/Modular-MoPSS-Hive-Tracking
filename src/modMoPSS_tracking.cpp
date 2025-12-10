@@ -182,7 +182,7 @@ const uint8_t arp = ACTIVE_PAIRS;
 //Give each reader pair an identifier character that is _unique_ across the _whole_ experiment!
 //output in log will show RFID reads like this: R?1 and R?2 where ? is the chosen identifier
 //It is only necessary to asign identifiers equal to the amount of active reader pairs
-const char RFIDreaderNames[maxReaderPairs + 1] = {'A','B','A','?','?','?','?','?','?','?'}; //Single character only!
+const char RFIDreaderNames[maxReaderPairs + 1] = {'D','B','A','?','?','?','?','?','?','?'}; //Single character only!
 
 //Interval at which the RTC should be updated, either via NTP or offline if enough data is available
 const uint16_t syncinterval = 600; //in seconds
@@ -443,9 +443,13 @@ void setup(){
     OLEDprint(1,0,0,0,reader1);
     OLEDprint(1,3,0,0,":");
     
+    
+    #ifndef SINGLE_RFID
     char reader2[4] = {'R',RFIDreaderNames[r],'2'};
+    
     OLEDprint(2,0,0,0,reader2);
     OLEDprint(2,3,0,1,":");
+    #endif // !SINGLE_RFID
     OLEDprint(5,0,0,1,"CONFIRM");
     OLEDprint(5,14,0,1,"TUNE?");
     uint8_t RFIDmodulestate = 0;
@@ -453,12 +457,16 @@ void setup(){
     reader1freq[r][0] = fetchResFreq(RFIDreader[r][0]);
     OLEDprintFraction(1,5,0,0,(float)reader1freq[r][0]/1000,3);
     OLEDprint(1,12,0,1," kHz");
+    reader1freq[r][1]=134200;
+    #ifndef SINGLE_RFID
     reader1freq[r][1] = fetchResFreq(RFIDreader[r][1]);
     OLEDprintFraction(2,5,0,0,(float)reader1freq[r][1]/1000,3);
     OLEDprint(2,12,0,1," kHz");
+    if (reader1freq[r][1]==0) criticalerrorMessage("CHECK ANTENNAS", reader2);
+    #endif
 
     if (reader1freq[r][0]==0) criticalerrorMessage("CHECK ANTENNAS",reader1);
-    if (reader1freq[r][1]==0) criticalerrorMessage("CHECK ANTENNAS", reader2);
+    
 
     if((abs(reader1freq[r][0] - 134200) >= 1000) || (abs(reader1freq[r][1] - 134200) >= 1000))
       OLEDprint(4,0,0,1,"Antenna detuned!");
@@ -540,16 +548,20 @@ void setup(){
       if (buttonpress==1)
       {
         RFIDmodulestate = 1;
-        setReaderMode(RFIDreader[r][0],2);
-        setReaderMode(RFIDreader[r][1],2);
+                  setReaderMode(RFIDreader[r][0],2);
+        #ifndef SINGLE_RFID
+  setReaderMode(RFIDreader[r][1],2);
+        #endif // !SINGLE_RFID
+        
       }
       if (buttonpress==3)
       {
-        
+        #ifndef SINGLE_RFID
         setReaderMode(RFIDreader[r][activeUnit],2);
         activeUnit=!activeUnit;
         Serial.println(activeUnit);
         setReaderMode(RFIDreader[r][activeUnit],4);
+        #endif // !SINGLE_RFID
       }
       oled.sendBuffer();
       delay(50);
@@ -724,7 +736,12 @@ void loop(){
     // if(globalRFIDtoggle == 1){
       
       for(uint8_t r = 0;r < arp;r++){
+        #ifndef SINGLE_RFID
+
+        
+        
         switchReaders(RFIDreader[r][globalRFIDtoggle],RFIDreader[r][!globalRFIDtoggle]); //enable reader2, disable reader1
+        #endif // !SINGLE_RFID
         lastRFIDreaderStatus[r*2+globalRFIDtoggle]=RFIDreaderStatus[r*2+globalRFIDtoggle];
         uint8_t tag_status = fetchtag(RFIDreader[r][globalRFIDtoggle],1,currenttag1[r][globalRFIDtoggle],RFIDreaderStatus[r*2+globalRFIDtoggle]); //fetch data reader1 collected during on-time saved in variable: tag
 
@@ -761,7 +778,9 @@ void loop(){
         }
         
       }
+      #ifndef SINGLE_RFID
       globalRFIDtoggle = !globalRFIDtoggle; //toggle the toggle
+      #endif // !SINGLE_RFID
     // }
 
     // else{
@@ -1332,7 +1351,7 @@ void rtc_set_secs_and_frac(uint32_t secs, uint32_t frac){
 	SNVS_HPCR |= SNVS_HPCR_RTC_EN | SNVS_HPCR_HP_TS;
 }
 
-
+ #ifdef USE_ETHERNET
 
 //Fetch NTP time and update RTC ~3ms dependent on server response time ---------
 uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync){
@@ -1494,6 +1513,7 @@ uint8_t NTPsync(bool update_time, bool save_drift, bool burst, bool online_sync)
   return 0;
 }
 
+#endif
 
 bool checkModule(uint8_t address)
 {
@@ -1517,18 +1537,28 @@ for(uint8_t r = 0;r < arp;r++){   //iterate through all active reader pairs
     OLEDprint(r+1,3,0,0,":");
     OLEDprint(r+1,4,0,0,!check1?"OK":"X");
     
+    
+    
+#ifndef SINGLE_RFID    
     char reader2[4] = {'R',RFIDreaderNames[r],'2'};
     bool check2 = checkModule(RFIDreader[r][1]);
     OLEDprint(r+1,8,0,0,reader2);
     OLEDprint(r+1,11,0,0,":");
     OLEDprint(r+1,12,0,1,!check2?"OK":"X");
+#else
+bool check2 = 0;
+
+#endif // !SINGLE_RFID
+
     if (check1 | check2)
     {
       char line1[20];
       if (check1)  sprintf(line1,"MISSING %s/0x%02X",reader1,RFIDreader[r][0]);
 
       char line2[20];
+      #ifndef SINGLE_RFID    
       if (check2) sprintf(line2,"MISSING %s/0x%02X",reader2,RFIDreader[r][1]);
+      #endif // !SINGLE_RFID
     criticalerrorMessage(line1,line2);
     } 
     
